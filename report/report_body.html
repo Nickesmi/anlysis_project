@@ -1,0 +1,247 @@
+<!-- Report body. tools/build_report.py inserts the tables, the plot and the code. -->
+
+<section class="cover">
+  <div class="uni">Bahçeşehir University, Faculty of Engineering and Natural Sciences</div>
+  <h1>CMP3005 Term Project<br>Efficient Plagiarism Detector</h1>
+  <table class="members">
+    <tr><th>Student number</th><th>Name</th></tr>
+    <tr><td>2477758</td><td>Nikan Esmaeil Tehrani</td></tr>
+    <tr><td>2361056</td><td>Pouya Shaterzadeh</td></tr>
+    <tr><td>2475798</td><td>Kian Samieenasab</td></tr>
+    <tr><td>2360187</td><td>Mustafa Faisal Izhar</td></tr>
+  </table>
+  <p class="note">Submission file: <code>2477758_2361056_2475798_2360187.pdf</code></p>
+  <p>Part 1 has our source code and explains how to compile and run it and which files it reads.
+     Part 2 is the report: (a) problem and approach, (b) data structures and algorithms, (c) complexity analysis,
+     (d) empirical analysis, (e) results, (f) team contributions and (g) AI use declaration.</p>
+</section>
+
+<!-- ============================== PART 1 ============================== -->
+<section class="part">
+<h1>Part 1: Source code with explanation</h1>
+
+<h3>Language, files and how to compile</h3>
+<p>We wrote the program in C++17 and only used the standard library. The code is split into modules that share one header file:</p>
+<table class="small">
+<tr><th>File</th><th>Contents</th></tr>
+<tr><td><code>src/plagiarism.h</code></td><td>data types (<code>Sentence</code>, <code>Document</code>, <code>Corpus</code>, <code>Match</code>, <code>MatchTable</code>) and all function declarations</td></tr>
+<tr><td><code>src/main.cpp</code></td><td>entry point, run modes, timing</td></tr>
+<tr><td><code>src/text_processing.cpp</code></td><td>reading files, sentence splitter, word tokenizer, our hash table (FNV-1a with open addressing) that gives every word an id</td></tr>
+<tr><td><code>src/similarity.cpp</code></td><td>matching rule, word-level edit distance (full and banded), edit descriptions</td></tr>
+<tr><td><code>src/brute_force.cpp</code></td><td>brute-force version</td></tr>
+<tr><td><code>src/efficient.cpp</code></td><td>efficient version (inverted index, pigeonhole filter, cheap filters, banded edit distance)</td></tr>
+<tr><td><code>src/output.cpp</code></td><td>ranking and printing</td></tr>
+<tr><td><code>src/benchmark.cpp</code></td><td>timing both versions for the empirical analysis</td></tr>
+</table>
+<p>To compile on macOS or Linux, run this inside the project folder. On Windows the same <code>g++</code> line works in MinGW or MSYS2.</p>
+<pre class="cmd">g++ -std=c++17 -O2 -o plagiarism src/*.cpp        # or simply: make</pre>
+
+<h3>How to run it and which files it reads</h3>
+<p>The program does not ask for any input. It reads <code>main_doc.txt</code> and every <code>*.txt</code> file inside
+<code>documents/</code>, both taken from the folder it is started in. Documents are handled in natural order, so document2.txt
+comes before document10.txt. This means you run it from inside the test-set folder:</p>
+<pre class="cmd">cd 1_STUDENTS_sample_set          # folder with main_doc.txt and documents/
+../plagiarism_detector/plagiarism  # efficient version (default)</pre>
+<table class="small">
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>plagiarism</code></td><td>efficient version; prints the ranked documents and the running time</td></tr>
+<tr><td><code>plagiarism brute</code></td><td>brute-force version, same output</td></tr>
+<tr><td><code>plagiarism compare</code></td><td>runs both versions, checks that their results are identical, prints both times and the speedup</td></tr>
+<tr><td><code>plagiarism benchmark [r]</code></td><td>times both versions on the first 1/8, 2/8, ..., 8/8 of the documents (best of <i>r</i> runs, 3 by default), checks that the results are equal and writes <code>benchmark.csv</code></td></tr>
+<tr><td><code>--dir &lt;folder&gt;</code></td><td>optional, reads the input from another folder instead of the current one</td></tr>
+</table>
+<p>The output goes to the console, one block per document, from most to least similar. Documents with the same rate keep their file order.</p>
+<pre class="out">1) document18.txt   similarity 26.7%   (8 of 30 sentences)
+   "&lt;sentence in main_doc.txt&gt;"
+   "&lt;matching sentence in document18.txt&gt;"   [edited: replaced "should" with "must"; inserted "also"]
+   ... up to the 5 most similar sentence pairs, then "... and 3 more pairs"
+2) document14.txt   similarity 16.7%   (5 of 30 sentences)</pre>
+<p>Exact copies are printed as they are. For edited copies we also print which word edits turn the document sentence into the
+main_doc sentence. There are two helper files that are not part of the graded program: <code>tests/selftest.cpp</code>
+(run with <code>make test</code>; 13 checks, one of them compares the banded and the full edit distance on 200 000 random inputs) and
+<code>tools/make_test_set.py</code>, which we used to make bigger and harder test sets where we know the right answer.</p>
+
+<h3>Source code</h3>
+{{CODE}}
+</section>
+
+<!-- ============================== PART 2 ============================== -->
+<section class="part report">
+<h1>Part 2: Report</h1>
+
+<h2>a. Problem and approach</h2>
+<p>The program gets <code>main_doc.txt</code> and a folder of documents. For every document it reports what percentage of the
+main_doc sentences were copied from it, either exactly or with small edits, and it shows the most similar sentence pairs.
+We use the definition from the assignment: similarity rate = matched sentences of main_doc / all sentences of main_doc × 100,
+printed with one decimal.</p>
+<p>Our main idea is to turn every sentence into a list of integer word ids and call two sentences a match when their word-level
+edit distance is small. The brute force computes this distance for every pair of sentences. The efficient version gives the same
+answer but computes almost no distances. It builds an index of the words in main_doc, reads each document sentence once, and uses a
+pigeonhole argument and two cheap lower bounds to throw away the pairs that cannot match. Only the few pairs that are left get a
+banded edit distance. The <code>compare</code> and <code>benchmark</code> modes run both versions on the same input and check that
+they print the same result.</p>
+<p><b>Matching rule.</b> A word is a run of letters and digits. An apostrophe or hyphen inside a word stays in it ("Majesty's",
+"well-nigh"). Case and punctuation are ignored. As the distance we use the optimal string alignment (OSA) distance on words, which is
+the smallest number of word insertions, deletions, replacements and swaps of two neighbouring words. These are the same four kinds of
+edits the task describes. Sentences <i>a</i> and <i>b</i> match if dist(<i>a</i>,<i>b</i>) ≤ ⌊0.30 · max(|a|,|b|)⌋. So a sentence
+of 1 to 3 words has to be identical, a 10-word sentence can have 3 edits and a 30-word sentence 9. We started with 25% and moved to 30%
+after testing on generated sets (section e). With 30% we found sentences that had up to 3 random edits, and we checked that no two
+different sentences in the sample documents are even within 40% of each other, so we did not get any false matches. A main sentence is
+counted once per document; if it matches several sentences there, we keep the closest one.</p>
+<p><b>Sentence splitting.</b> A sentence ends at <code>.</code>, <code>!</code> or <code>?</code> when the next thing after the
+whitespace is a capital letter, a digit, a quote or a bracket. We do not split after <i>Mr.</i>, <i>St.</i>, a few other common
+abbreviations, or a single capital letter (<i>U.S.</i>, <i>James B. Eads</i>). We also do not split when a closing quote comes right
+after the full stop (<code>do." The</code>), and an empty line always ends a sentence. We got this rule from the data. While looking
+at the sample documents we noticed that every paragraph has exactly six sentences, so the documents were clearly built from the test
+generator's own sentences. Only this rule gives six sentences in all 320 paragraphs. A simple split on every <code>". "</code> gives 7
+or 8 in eleven of them, and our first version, which also split after closing quotes, was wrong in a few paragraphs too. Getting the
+boundaries right matters because a sentence that is cut in two changes the sentence count and can hide a copied sentence.</p>
+
+<h2>b. Data structures and algorithms</h2>
+<p><b>1. Tokenizer and our own hash table (word to id).</b> One pass over the text splits it into sentences and words. We do not use
+<code>find</code>, <code>indexOf</code> or regex anywhere. Each lower-cased word gets a small integer id from a hash table we wrote
+ourselves. It uses the 64-bit FNV-1a hash and open addressing with linear probing, and the table doubles when it is half full. After
+this step a sentence is a <code>vector&lt;int&gt;</code> and comparing two words is a single integer comparison. We chose a hash table
+because a lookup is O(1) on average, while std::map or a BST needs O(log V) string comparisons. Integer ids also make all later steps
+cheaper than working with strings. In our first version we stored every word as a separate std::string, and reading 200 documents took
+about 94 ms. With the hash table and no per-word strings it went down to about 48 ms.</p>
+<pre class="pseudo">intern(word):  h ← FNV1a(lowercase(word));  p ← h mod size
+               while slot[p] not empty: if stored(slot[p]) = word: return slot[p];  p ← p+1 mod size
+               slot[p] ← new id;  if count > size/2: double size and re-insert;  return new id</pre>
+
+<p><b>2. Word-level OSA edit distance (dynamic programming).</b> We picked OSA because it counts exactly the four allowed edits.
+Plain Levenshtein counts a swap as 2 edits, and bag-of-words measures like Jaccard or cosine cannot see a swap at all. We work on words
+instead of characters, so the sequences are about 6 times shorter.</p>
+<pre class="pseudo">d[i][0] = i,  d[0][j] = j
+d[i][j] = min( d[i-1][j] + 1,  d[i][j-1] + 1,  d[i-1][j-1] + [a_i ≠ b_j],
+               d[i-2][j-2] + 1  if a_i = b_(j-1) and a_(i-1) = b_j )        # swap
+answer d[|a|][|b|]   (only 3 rows are stored)</pre>
+<p><b>3. Brute force.</b></p>
+<pre class="pseudo">for each sentence a of main_doc:  for each document D:  for each sentence b of D:
+    dist ← OSA(a, b)                                        # full table, O(|a|·|b|)
+    if dist ≤ allowed(|a|,|b|): keep (D, a, b, dist) if it is the best pair of a in D</pre>
+
+<p><b>4. Efficient version.</b> It has four parts.</p>
+<p>(i) An inverted index of main_doc: <code>postings[word]</code> is the list of main sentences that contain the word, and we also keep
+each main sentence's word ids in sorted order. Our first efficient version indexed all the documents instead. That index is much bigger
+and was slower to build, so we switched to indexing main_doc, which is the small side, and reading the documents one sentence at a time.</p>
+<p>(ii) The pigeonhole filter. Suppose <i>b</i> matches <i>a</i> with at most k edits. Each edit can remove at most one word of
+<i>b</i> from <i>a</i> (a swap removes none), so if we take any k+1 different words of <i>b</i>, at least one of them is in <i>a</i>.
+This gives us two shortcuts. If k+1 different words of <i>b</i> do not appear anywhere in main_doc, <i>b</i> cannot match anything and
+we skip it. If not, we only look at the main sentences in the posting lists of the k+1 rarest words of <i>b</i>. Because of the
+argument above we never lose a real match, so the result is the same as the brute force.</p>
+<p>(iii) Two cheap filters that never reject a real match, the cheaper one first. The length filter uses the fact that each edit changes
+the length by at most one word. The bag-of-words filter uses dist ≥ max(|a|,|b|) minus the number of common words; we count the common
+words by merging the two sorted id lists in O(w).</p>
+<p>(iv) Banded OSA. If the distance is at most k, the best alignment never leaves the band |i − j| ≤ k, so we only fill 2k+1 cells per
+row. We also stop as soon as a whole row is bigger than k.</p>
+<pre class="pseudo">build postings[word], sorted ids of every main sentence                    # once, O(n·w log w)
+for each document D, for each sentence b of D:
+    k ← largest allowed(|a|,|b|) over all |a| that pass the length filter
+    scan distinct words of b; missing ← words with empty postings;  if missing > k: next b
+    probes ← missing words + (k+1 − missing) rarest present words of b
+    for each main sentence a in postings of probes (each a once):
+        k_ab ← allowed(|a|,|b|)
+        if | |a|−|b| | > k_ab: continue                                      # length filter
+        if max(|a|,|b|) − common(sorted a, sorted b) > k_ab: continue        # bag-of-words filter
+        if bandedOSA(a, b, k_ab) ≤ k_ab: keep the pair (best per (D, a))
+(if b has ≤ k distinct words the pigeonhole rule cannot be applied: all a with ||a|−|b|| ≤ k are candidates)</pre>
+<p>We also thought about other options. Rabin-Karp or hashing whole sentences only finds exact copies. Hashing word n-grams (shingles)
+needs 3k+1 probes per sentence because one edit can break up to 3 bigrams, and common bigrams like "of the" have very long lists. With
+single words and "rarest first" we only need k+1 probes. MinHash and LSH are probabilistic, so they can miss copies. Suffix trees and
+suffix arrays find exact substrings, not edited sentences.</p>
+<p><b>5. Output.</b> A <code>MatchTable</code> (documents × main sentences) stores the best pair for each cell. We sort the documents
+by number of matched sentences and the pairs inside a document by dist/max(|a|,|b|). The best 5 pairs are printed, and for edited ones
+we get the edit list by walking back through the DP table.</p>
+
+<h2>c. Complexity analysis</h2>
+<p>We use these names: n = sentences in main_doc, m = number of documents, s = sentences per document, S = m·s = all document
+sentences, w = words per sentence (maximum), W ≈ S·w = all words in the documents, C = characters in all files, V = number of different
+words, k = allowed edits ≤ 0.3 · longer length (at most 0.43·w after the length filter), c = candidates per document sentence and
+M = matching pairs.</p>
+<table class="small">
+<tr><th>Step</th><th>Worst case</th><th>Explanation</th></tr>
+<tr><td>Read, split, tokenize, hash (both versions)</td><td>O(C) expected</td><td>one linear scan; a hash lookup costs O(word length) on average (load ≤ ½, doubling is amortized O(1)); O(V) per lookup only if every word collides</td></tr>
+<tr><td>Full OSA of one pair</td><td>O(w²)</td><td>(|a|+1)(|b|+1) cells, O(1) each</td></tr>
+<tr><td><b>Brute force</b></td><td><b>O(n·S·w²) = O(n·m·s·w²)</b></td><td>every one of the n·S pairs gets a full DP</td></tr>
+<tr><td>Build main_doc index</td><td>O(n·w log w)</td><td>n·w postings plus sorting each main sentence</td></tr>
+<tr><td>Scan + pigeonhole test of b</td><td>O(w)</td><td>stamp arrays make the distinct-word and posting checks O(1)</td></tr>
+<tr><td>Probe selection, sort b</td><td>O(w log w)</td><td>partial sort of at most w words, sort for the merge</td></tr>
+<tr><td>Candidate generation</td><td>O(k·n) = O(w·n)</td><td>k+1 posting lists, each at most n long; at most n different candidates</td></tr>
+<tr><td>Length / bag filter</td><td>O(1) / O(w)</td><td>per candidate</td></tr>
+<tr><td>Banded OSA</td><td>O(w·k) = O(w²)</td><td>only for candidates that pass both filters</td></tr>
+<tr><td>Ranking + printing</td><td>O(m·n + m log m + n log n)</td><td>count matches, sort documents, sort pairs, at most 5 edit lists of O(w²) per document</td></tr>
+<tr><td><b>Efficient, whole program</b></td><td><b>O(C + n·w log w + S·(w log w + n·w) + D·w²)</b></td><td>D = pairs that reach the DP</td></tr>
+</table>
+<p>In the worst case, every document sentence is almost the same as every main sentence. Then all pairs pass the filters (D = n·S) and
+the efficient version is also O(n·S·w²). We do not think any exact algorithm can avoid this, because in that input every pair really
+has to be reported or ruled out. Real text is very different. The brute force always does n·S full DPs of w² cells, but our version
+does O(w) work for most document sentences and O(w) per candidate, and only computes a DP for the M real matches. We counted this on
+the 200-document set with the 30-sentence main_doc. The brute force computes 600 000 full DPs. Our version skips 6 670 of the 20 000
+document sentences with the pigeonhole test alone, looks at 47 440 candidates (the length filter removes 29 580 and the bag-of-words
+filter 17 660) and computes only 200 banded DPs, which are exactly the 200 matching pairs. So in practice it costs
+O(C + S·w log w + S·c·w + M·w²) with c ≈ 2.4, much smaller than n. That is linear in the input size, while the brute force grows with
+n·S·w². Both versions use O(C + V + n·w + m·n) memory.</p>
+
+<h2>d. Empirical analysis</h2>
+<p>We ran all measurements on an Apple M2 Pro (16 GB RAM, macOS 26, Apple clang 17, <code>-O2</code>) with
+<code>plagiarism benchmark 5</code>. Each time is the best of 5 runs, except that a brute-force run longer than 3 s is not repeated.
+The times are in milliseconds and only cover the matching step. For the efficient version this includes building the index. Reading
+and preprocessing the files is the same for both versions, so we left it out; it takes about 5 to 12 ms for the sample set and about
+48 ms for 200 documents. The sample set only has 20 documents, so for 25 to 200 documents we made a 200-document set with
+<code>tools/make_test_set.py scale</code>, which repeats the sample documents with their sentences shuffled. We used it once with the
+sample main_doc (30 sentences) and once with a longer main_doc of 230 sentences, 150 of them copied. In every run both versions gave
+identical results.</p>
+{{TABLES}}
+{{PLOT}}
+<p>Both versions grow linearly with the number of documents, which is what we expected: n and w stay fixed and S = m·s grows linearly.
+The efficient version is 47 to 54 times faster with the sample-sized main_doc and 92 to 100 times faster with the 230-sentence one. The
+brute force does n·S full DPs, while in our version only the number of candidates depends on n, and each candidate costs an O(w) merge
+instead of an O(w²) table. When we timed the whole program, including reading the files, on 200 documents with the 230-sentence
+main_doc, it took 0.14 s for the efficient version and 7.96 s for the brute force.</p>
+
+<h2>e. Results</h2>
+<p>On the sample set we find all 20 copied sentences (13 exact and 7 edited) and no false matches. The ranking and the rates are the
+same as in <code>expected_output.txt</code>: document18 26.7% (8/30), document14 16.7% (5/30), document20 13.3% (4/30), document3 6.7%
+(2/30), document4 3.3% (1/30), and 0.0% for all other documents. For all 7 edited sentences our edit lists contain the same edits as the
+expected output; we just list them in the order they appear in the sentence.</p>
+<p>Some correct matches:</p>
+<ul class="ex">
+<li>Exact copy from document18: "This fault should not be committed in dealing with a subject that will before many years affect so vitally thousands of our people." The distance is 0.</li>
+<li>A replacement and a swap (2 edits in 23 words, 6 allowed). main_doc has "The report of the Civil Service Commission <u>must</u> receive the <u>attention careful</u> ..." and document18 has "... <u>should</u> receive the <u>careful attention</u> ...". We print <i>replaced "should" with "must"; swapped "careful" and "attention"</i>. In OSA the swap costs 1 edit; Levenshtein would count it as 2.</li>
+<li>A deletion (1 edit): "With the possession of such a station <u>the</u> United States, ..." against document14's "... a station <u>by</u> the United States, ...". We print <i>deleted "by"</i>.</li>
+</ul>
+<p>To test harder cases we used <code>make_test_set.py accuracy</code>. It copies 40 sentences into a new main_doc and gives each one
+0 to 3 random insertions, deletions, replacements or swaps. It also adds 20 sentences from documents that are left out, so they appear
+nowhere. We ran 10 seeds per setting. With copied sentences of at least 10 words we found 800 out of 800. With sentences of at least
+6 words we found 798 out of 800. None of the runs had a false match. We also tried a 230-sentence main_doc with 150 copied sentences,
+and the program found all 150 and ranked the documents correctly.</p>
+<p>The two sentences we missed were these:</p>
+<ul class="ex">
+<li>"In <u>invaded canals</u> solicitude intense pervaded the nation." against the original "In <u>that crisis</u> intense solicitude pervaded the nation." That is 3 edits (2 replacements and 1 swap) in an 8-word sentence, so 37.5%, and our rule allows 30%.</li>
+<li>"It <u>term frequented</u> transmitted to Congress." against "It is herewith transmitted to Congress." That is 2 edits in 6 words, and only 1 is allowed.</li>
+</ul>
+<p>Both are short sentences where almost half of the words changed, which we would not call a small edit any more. If we allowed more
+edits we would find them, but we would also start accepting unrelated short sentences. The rule also handles similar State of the Union
+phrases well. For example, "These treaties and conventions will be laid before the Senate for ratification." and a document's "The
+articles agreed upon will immediately be laid before the Senate for their consideration." have distance 7 (4 allowed), so we do not
+report them, and that is right because one is not a copy of the other. Another way to miss a sentence would be splitting sentences
+differently from the test generator, for example at an unusual abbreviation, because then the sentence is cut in two. This is why we
+spent time matching the generator's splitting rule (section a).</p>
+
+<h2>f. Team contributions</h2>
+<table class="small">
+<tr><th>Member</th><th>Contribution</th></tr>
+<tr><td>Nikan Esmaeil Tehrani (2477758)</td><td>efficient version (main_doc index, pigeonhole filter, length and bag-of-words filters, banded edit distance), complexity analysis, putting the modules together</td></tr>
+<tr><td>Pouya Shaterzadeh (2361056)</td><td>reading the input, sentence splitter and finding the generator's splitting rule, word tokenizer, FNV-1a hash table, speeding up the preprocessing</td></tr>
+<tr><td>Kian Samieenasab (2475798)</td><td>matching rule and choosing the 30% threshold, OSA edit distance, brute-force version, edit descriptions, accuracy tests with the test-set generator</td></tr>
+<tr><td>Mustafa Faisal Izhar (2360187)</td><td>output and ranking, benchmark mode, empirical analysis (tables and plot), self-test, putting the report together</td></tr>
+</table>
+
+<h2>g. AI Use Declaration</h2>
+<p>We used an AI assistant, Claude (Anthropic), in this project. It helped us write and debug parts of the C++ code, the test-set
+generator and the report text, and it helped us check our complexity analysis. We ran every version of the program ourselves on the
+sample set and on our generated test sets, compared the output with <code>expected_output.txt</code>, and made sure the brute-force and
+efficient versions always give the same result. Every member has gone through the whole code and can explain it.
+[Attach the signed AI Use Declaration Form from the syllabus here.]</p>
+</section>

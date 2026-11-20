@@ -1,0 +1,6 @@
+plagiarism
+selftest
+*.o
+.DS_Store
+__pycache__/
+benchmark.csv

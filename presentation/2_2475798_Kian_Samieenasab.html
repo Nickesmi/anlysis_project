@@ -1,0 +1,102 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Guide Kian Samieenasab</title><style>
+@page { size: A4; margin: 15mm 15mm 15mm 15mm; }
+body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10pt; line-height: 1.42; color: #111; }
+h1 { font-size: 17pt; margin: 0 0 2px; } h2 { font-size: 12.5pt; margin: 16px 0 5px; color: #1d3c78; border-bottom: 1px solid #ccd; }
+h3 { font-size: 10.5pt; margin: 10px 0 3px; }
+.sub { color: #555; margin-bottom: 10px; }
+table { border-collapse: collapse; margin: 6px 0; width: 100%; } td, th { border: 1px solid #bbb; padding: 3px 7px; vertical-align: top; }
+th { background: #eef1f6; text-align: left; } td.me { background: #fff6d6; font-weight: bold; }
+.script { background: #f7f8fb; border-left: 4px solid #1d3c78; padding: 6px 10px; margin: 6px 0; }
+pre { font-family: Menlo, Consolas, monospace; font-size: 8.6pt; background: #f5f6f8; border: 1px solid #dde; padding: 5px 7px; white-space: pre-wrap; }
+code { font-family: Menlo, Consolas, monospace; font-size: 9pt; }
+.q { font-weight: bold; margin-top: 7px; } .a { margin: 1px 0 4px 14px; }
+.shared { page-break-before: always; }
+ul { margin: 3px 0 6px; padding-left: 20px; } li { margin: 1px 0; }
+</style></head><body><h1>Presentation guide: Kian Samieenasab (2475798)</h1>
+<div class="sub">CMP3005 Term Project, Efficient Plagiarism Detector. Speaker 2 of 4. Your part: Matching rule, OSA edit distance, brute-force version, edit descriptions, accuracy tests.</div>
+<h2>1. Your slot</h2>
+<table><tr><th>Time</th><th>Who</th><th>Topic</th></tr><tr><td>0:00 to 2:00</td><td>Pouya Shaterzadeh</td><td>The problem, the input, sentence splitting, tokenizer and our hash table</td></tr><tr><td class="me">2:00 to 4:00</td><td class="me">Kian Samieenasab</td><td class="me">Matching rule, OSA edit distance, brute-force version</td></tr><tr><td>4:00 to 6:30</td><td>Nikan Esmaeil Tehrani</td><td>Efficient version and complexity analysis</td></tr><tr><td>6:30 to 8:00</td><td>Mustafa Faisal Izhar</td><td>Empirical analysis, accuracy results</td></tr><tr><td>8:00 to 10:00</td><td>Mustafa Faisal Izhar (drives), everyone</td><td>Run on the hidden test set, then questions</td></tr></table>
+<p>You speak at: 2:00 to 4:00. Keep to about 300 words; it is fine to read from the slide notes the first time, but practise until you only need the slide.</p>
+<h2>2. Your slides</h2><ul><li>Slide 5. Matching rule: OSA distance on words, the four edits, the 30% threshold with examples (3, 10, 30 words).</li><li>Slide 6. The DP recurrence with the swap case, and an example table for a small sentence.</li><li>Slide 7. Brute-force pseudocode and O(n·S·w²).</li></ul>
+<h2>3. What to say</h2>
+<div class="script">
+<p>Now that every sentence is a list of word ids, we need a rule for when two sentences match. The task says a copy can have
+small edits: a word added, removed, replaced, or two neighbouring words swapped. So we use the optimal string alignment
+distance on words, OSA for short. It is the smallest number of those four edits that turns one sentence into the other.
+We chose it over normal Levenshtein because Levenshtein counts a swap as two edits, and over word-set measures like Jaccard
+because those do not see a swap at all.</p>
+<p>Two sentences match if the distance is at most 30% of the longer sentence, rounded down. So a sentence of three words or
+less has to be identical, a 10-word sentence can have 3 edits, and a 23-word sentence can have 6. We started with 25%, but in
+our generated tests 30% found three more heavily edited short sentences and still gave zero false matches. In the sample
+documents no two different sentences are even within 40% of each other.</p>
+<p>The distance is a dynamic programming table. Cell i, j is the distance between the first i words of one sentence and the
+first j words of the other. It takes the minimum of delete, insert, keep or replace, and the swap case, which looks two rows
+and two columns back. We only keep three rows in memory. The brute force does this for every main sentence, every document
+and every sentence in it, so it is O(n times S times w squared). On 200 documents that is 600 000 full tables. Nikan will
+show how we avoid almost all of them.</p>
+</div>
+<h2>4. Your code (open these lines before the presentation)</h2><table><tr><th>Where</th><th>What it does</th></tr><tr><td><code>src/similarity.cpp:27</code></td><td><code>EDIT_PERCENT = 30</code>.</td></tr><tr><td><code>src/similarity.cpp:29</code></td><td><code>allowedEdits(la, lb)</code> = max(la, lb) * 30 / 100 with integer division, which is the floor.</td></tr><tr><td><code>src/similarity.cpp:37</code></td><td><code>maxAllowedEdits(la)</code>: the largest k any partner sentence could get. The partner can be longer by at most k words, and a longer partner gets a bigger k, so we walk lb upwards until the length gap is bigger than k. Example: 20 words gives 8.</td></tr><tr><td><code>src/similarity.cpp:56</code></td><td><code>osaDistance</code>: the full DP with three rolling rows (prev2, prev, cur). The swap case uses prev2[j-2] + 1 when a[i-1] == b[j-2] and a[i-2] == b[j-1].</td></tr><tr><td><code>src/similarity.cpp:82</code></td><td><code>boundedOsaDistance</code>: the banded version used by the efficient algorithm (Nikan explains it). It must give the same answer as osaDistance whenever the distance is at most k; the self-test checks that on 200 000 random pairs.</td></tr><tr><td><code>src/similarity.cpp:125</code></td><td><code>describeEdits</code>: builds the full table, then walks back from the bottom-right corner: same word, swap, replace, delete, insert. It prints the edits in sentence order, e.g. replaced "should" with "must".</td></tr><tr><td><code>src/similarity.cpp:181</code></td><td><code>MatchTable::offer</code>: keeps the best pair for each (document, main sentence): smaller distance wins, ties go to the smaller document sentence index. This is why brute force and efficient pick exactly the same pair.</td></tr><tr><td><code>src/brute_force.cpp:16</code></td><td><code>runBruteForce</code>: three nested loops, a full OSA for every pair, no shortcuts. This is the version we compare against.</td></tr><tr><td><code>tools/make_test_set.py</code></td><td>The accuracy generator: copies 40 sentences into a new main_doc with 0 to 3 random edits, adds 20 sentences that appear nowhere, and writes an answer key.</td></tr></table>
+<h2>5. Numbers to remember</h2><ul><li>Allowed edits: 1 to 3 words give 0, 4 to 6 words give 1, 10 words give 3, 23 words give 6, 30 words give 9.</li><li>Sample: 20 of 20 copied sentences found, 13 exact, 7 edited; edits were at most 2 per sentence.</li><li>Generated tests: 800/800 found for sentences of at least 10 words, 798/800 for at least 6 words, 0 false matches.</li><li>Brute force on 200 documents and a 30-sentence main_doc: 600 000 full DPs, 741 ms.</li></ul>
+<h2>6. Questions you will probably get</h2><div class="q">Why OSA and not Levenshtein?</div><div class="a">The task lists a swap of two neighbouring words as one small edit. Levenshtein would need a delete and an insert (or two replacements) for it, so a sentence with two swaps would look like four edits. OSA counts each swap as one.</div><div class="q">Why compare words and not characters?</div><div class="a">The edits in the task are word edits. Word sequences are also about 6 times shorter than character sequences, so the table is about 36 times smaller.</div><div class="q">Why 30%?</div><div class="a">We tested 25% and 30% on generated sets. 30% found three more sentences with 3 edits in short sentences and still had zero false matches. We also checked all pairs of different sentences in the sample documents: none are within 40% of each other, so 30% leaves a safe margin.</div><div class="q">Why must very short sentences be identical?</div><div class="a">floor(0.3 times 3) is 0. For a 3-word sentence one edit is a third of the sentence, and short sentences like "It is so." would match many unrelated sentences.</div><div class="q">What is the time and memory of one OSA?</div><div class="a">Time O(|a| times |b|), memory O(|b|) because we keep three rows: the current one, the previous one, and the one before it for swaps.</div><div class="q">Is OSA a metric?</div><div class="a">Not exactly, it can break the triangle inequality, unlike full Damerau-Levenshtein. We never need the triangle inequality, we only compare one pair at a time with a threshold, so it does not matter.</div><div class="q">What if a main sentence matches two sentences in the same document?</div><div class="a">It still counts once for that document, because the rate counts main_doc sentences. We keep the closest pair; if two are equally close we keep the earlier one.</div><div class="q">Show the brute-force complexity.</div><div class="a">n main sentences times S document sentences pairs, each a w by w table: O(n times S times w squared). With 200 documents that is 30 times 20 000 = 600 000 tables.</div><div class="q">Give an example of a sentence you miss.</div><div class="a">"In invaded canals solicitude intense pervaded the nation." against "In that crisis intense solicitude pervaded the nation.": 3 edits in 8 words is 37.5%, more than 30%. Almost half the sentence changed, so we would not call it a small edit.</div>
+
+<section class="shared">
+<h2>Shared part: the whole project on one page (everyone must know this)</h2>
+<h3>Pipeline</h3>
+<ol>
+<li><b>Read</b> main_doc.txt and documents/*.txt from the current folder (or --dir). Natural file order.</li>
+<li><b>Split</b> into sentences (generator rule: no split after Mr./St./single capitals, not after a closing quote; empty line ends a sentence).</li>
+<li><b>Words to ids</b>: lower-case, letters and digits, inner ' and - kept; our FNV-1a hash table with linear probing gives each word an int id.</li>
+<li><b>Match</b>: OSA distance on words (insert, delete, replace, swap neighbours), match if distance &lt;= floor(0.3 x longer length).
+   Brute force: every pair, full DP. Efficient: main_doc index, pigeonhole skip, k+1 rarest words, length filter, bag-of-words filter, banded DP.</li>
+<li><b>Output</b>: rate = matched main sentences / all main sentences; documents sorted by rate, ties in file order; up to 5 most similar pairs, edits listed.</li>
+</ol>
+<h3>Complexity in one line each</h3>
+<ul>
+<li>n main sentences, m documents, s sentences per document, S = m·s, w words per sentence, C characters.</li>
+<li>Preprocessing: O(C) expected (both versions).</li>
+<li>Brute force: O(n·S·w²).</li>
+<li>Efficient: O(C + n·w log w + S·(w log w + n·w) + D·w²); worst case O(n·S·w²) if every pair survives; in practice D = real matches, so about linear.</li>
+<li>Memory: O(C + V + n·w + m·n).</li>
+</ul>
+<h3>Numbers everyone should remember</h3>
+<ul>
+<li>Sample: 20/20 found (13 exact, 7 edited), same ranking and rates as expected_output.txt, 0 false matches.</li>
+<li>200 documents: 741 ms vs 14 ms (53x) with n = 30; 7.8 s vs 82 ms (96x) with n = 230; whole program 7.96 s vs 0.14 s.</li>
+<li>Filters on 200 documents: 20 000 sentences, 6 670 skipped at once, 47 440 candidates, 200 DPs = 200 matches (brute: 600 000 DPs).</li>
+<li>Generated tests: 800/800 (at least 10 words), 798/800 (at least 6 words), 0 false matches.</li>
+</ul>
+<h3>Talk plan (10 minutes)</h3>
+<table><tr><th>Time</th><th>Who</th><th>Topic</th></tr><tr><td>0:00 to 2:00</td><td>Pouya Shaterzadeh</td><td>The problem, the input, sentence splitting, tokenizer and our hash table</td></tr><tr><td class="me">2:00 to 4:00</td><td class="me">Kian Samieenasab</td><td class="me">Matching rule, OSA edit distance, brute-force version</td></tr><tr><td>4:00 to 6:30</td><td>Nikan Esmaeil Tehrani</td><td>Efficient version and complexity analysis</td></tr><tr><td>6:30 to 8:00</td><td>Mustafa Faisal Izhar</td><td>Empirical analysis, accuracy results</td></tr><tr><td>8:00 to 10:00</td><td>Mustafa Faisal Izhar (drives), everyone</td><td>Run on the hidden test set, then questions</td></tr></table>
+<h3>Questions anyone can get</h3>
+<div class="q">Which files does it read and how do you run it?</div>
+<div class="a">main_doc.txt and documents/*.txt in the folder it is started from. Compile with <code>g++ -std=c++17 -O2 -o plagiarism src/*.cpp</code>, run with <code>./plagiarism</code> (efficient), <code>brute</code>, <code>compare</code>, <code>benchmark</code>.</div>
+<div class="q">Did you use any built-in search?</div>
+<div class="a">No find, indexOf or regex in the core. Splitting, tokenizing, hashing and matching are our own code. We use standard containers (vector, sort), which the assignment allows.</div>
+<div class="q">Are the brute force and the efficient version really the same?</div>
+<div class="a">Same matching rule, and the efficient filters can only reject pairs that cannot match, so the result tables are identical. compare and benchmark check it every run.</div>
+<div class="q">What would you improve?</div>
+<div class="a">Reading the files is now the slowest part (about 48 ms for 200 documents); it could be done with memory-mapped files or in parallel. We could also make the threshold depend on the sentence length more carefully for very short sentences.</div>
+<div class="q">Did you use AI?</div>
+<div class="a">Yes, Claude, as written in our AI Use Declaration. We tested everything ourselves and each of us can explain all of the code.</div>
+
+<h2>Hidden test set: checklist (Mustafa drives, everyone should know it)</h2>
+<pre>Before class (once):
+  cd ~/Desktop/betuljende/plagiarism_detector
+  make                       # or: g++ -std=c++17 -O2 -o plagiarism src/*.cpp
+  make test                  # should print ALL TESTS PASSED
+  cd ../1_STUDENTS_sample_set && ../plagiarism_detector/plagiarism compare | tail -4
+
+In class, when you get the hidden folder (it contains main_doc.txt and documents/):
+  cd "&lt;hidden folder&gt;"
+  ~/Desktop/betuljende/plagiarism_detector/plagiarism | head -60      # efficient result, top of the ranking
+  ~/Desktop/betuljende/plagiarism_detector/plagiarism | tail -4       # times
+  ~/Desktop/betuljende/plagiarism_detector/plagiarism compare | tail -5   # both versions, same result, speedup
+
+If it says "Error: cannot read ./main_doc.txt": you are in the wrong folder. Either cd into the folder
+that contains main_doc.txt, or add  --dir "&lt;hidden folder&gt;"  to the command.</pre>
+<ul>
+<li>Do not change any code in class; the assignment says it must run without changes.</li>
+<li>Keep the laptop charged, the terminal font large, and the sample-set run already in the scroll-back as a backup.</li>
+</ul>
+</section>
+</body></html>

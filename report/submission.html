@@ -1,0 +1,1515 @@
+<!doctype html><html><head><meta charset="utf-8"><title>CMP3005 Plagiarism Detector</title><style>
+@page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 9.6pt; line-height: 1.38; color: #111; }
+h1 { font-size: 16pt; margin: 0 0 8px; } h2 { font-size: 12pt; margin: 12px 0 4px; color: #1d3c78; }
+h3 { font-size: 10.5pt; margin: 10px 0 4px; }
+.cover { page-break-after: always; padding-top: 40mm; }
+.cover h1 { font-size: 22pt; } .uni { color: #555; margin-bottom: 14px; }
+.part { page-break-before: always; } .cover + .part { page-break-before: auto; }
+table { border-collapse: collapse; margin: 6px 0; } td, th { border: 1px solid #bbb; padding: 2px 6px; vertical-align: top; }
+th { background: #eef1f6; text-align: left; }
+table.members td, table.members th { padding: 5px 12px; font-size: 11pt; }
+table.small { font-size: 8.8pt; width: 100%; }
+table.bench { font-size: 8.6pt; margin-right: 10px; } table.bench td { text-align: right; }
+.benchrow { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.benchrow .cap { font-size: 8.4pt; font-weight: bold; margin: 2px 0; }
+pre { font-family: Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+pre.cmd, pre.out, pre.pseudo { background: #f5f6f8; border: 1px solid #dde; padding: 5px 7px; font-size: 8.2pt; margin: 4px 0 8px; }
+pre.code { font-size: 7.2pt; line-height: 1.25; border-top: 1px solid #ccc; padding-top: 3px; margin: 0 0 10px; }
+.codefile { font-weight: bold; font-size: 9pt; margin-top: 8px; page-break-after: avoid; }
+code { font-family: Menlo, Consolas, monospace; font-size: 8.6pt; }
+ul.ex { margin: 2px 0 6px 0; padding-left: 18px; } .note { color: #444; }
+.plot { margin: 6px 0; }
+</style></head><body><!-- Report body. tools/build_report.py inserts the tables, the plot and the code. -->
+
+<section class="cover">
+  <div class="uni">Bahçeşehir University, Faculty of Engineering and Natural Sciences</div>
+  <h1>CMP3005 Term Project<br>Efficient Plagiarism Detector</h1>
+  <table class="members">
+    <tr><th>Student number</th><th>Name</th></tr>
+    <tr><td>2477758</td><td>Nikan Esmaeil Tehrani</td></tr>
+    <tr><td>2361056</td><td>Pouya Shaterzadeh</td></tr>
+    <tr><td>2475798</td><td>Kian Samieenasab</td></tr>
+    <tr><td>2360187</td><td>Mustafa Faisal Izhar</td></tr>
+  </table>
+  <p class="note">Submission file: <code>2477758_2361056_2475798_2360187.pdf</code></p>
+  <p>Part 1 has our source code and explains how to compile and run it and which files it reads.
+     Part 2 is the report: (a) problem and approach, (b) data structures and algorithms, (c) complexity analysis,
+     (d) empirical analysis, (e) results, (f) team contributions and (g) AI use declaration.</p>
+</section>
+
+<!-- ============================== PART 1 ============================== -->
+<section class="part">
+<h1>Part 1: Source code with explanation</h1>
+
+<h3>Language, files and how to compile</h3>
+<p>We wrote the program in C++17 and only used the standard library. The code is split into modules that share one header file:</p>
+<table class="small">
+<tr><th>File</th><th>Contents</th></tr>
+<tr><td><code>src/plagiarism.h</code></td><td>data types (<code>Sentence</code>, <code>Document</code>, <code>Corpus</code>, <code>Match</code>, <code>MatchTable</code>) and all function declarations</td></tr>
+<tr><td><code>src/main.cpp</code></td><td>entry point, run modes, timing</td></tr>
+<tr><td><code>src/text_processing.cpp</code></td><td>reading files, sentence splitter, word tokenizer, our hash table (FNV-1a with open addressing) that gives every word an id</td></tr>
+<tr><td><code>src/similarity.cpp</code></td><td>matching rule, word-level edit distance (full and banded), edit descriptions</td></tr>
+<tr><td><code>src/brute_force.cpp</code></td><td>brute-force version</td></tr>
+<tr><td><code>src/efficient.cpp</code></td><td>efficient version (inverted index, pigeonhole filter, cheap filters, banded edit distance)</td></tr>
+<tr><td><code>src/output.cpp</code></td><td>ranking and printing</td></tr>
+<tr><td><code>src/benchmark.cpp</code></td><td>timing both versions for the empirical analysis</td></tr>
+</table>
+<p>To compile on macOS or Linux, run this inside the project folder. On Windows the same <code>g++</code> line works in MinGW or MSYS2.</p>
+<pre class="cmd">g++ -std=c++17 -O2 -o plagiarism src/*.cpp        # or simply: make</pre>
+
+<h3>How to run it and which files it reads</h3>
+<p>The program does not ask for any input. It reads <code>main_doc.txt</code> and every <code>*.txt</code> file inside
+<code>documents/</code>, both taken from the folder it is started in. Documents are handled in natural order, so document2.txt
+comes before document10.txt. This means you run it from inside the test-set folder:</p>
+<pre class="cmd">cd 1_STUDENTS_sample_set          # folder with main_doc.txt and documents/
+../plagiarism_detector/plagiarism  # efficient version (default)</pre>
+<table class="small">
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>plagiarism</code></td><td>efficient version; prints the ranked documents and the running time</td></tr>
+<tr><td><code>plagiarism brute</code></td><td>brute-force version, same output</td></tr>
+<tr><td><code>plagiarism compare</code></td><td>runs both versions, checks that their results are identical, prints both times and the speedup</td></tr>
+<tr><td><code>plagiarism benchmark [r]</code></td><td>times both versions on the first 1/8, 2/8, ..., 8/8 of the documents (best of <i>r</i> runs, 3 by default), checks that the results are equal and writes <code>benchmark.csv</code></td></tr>
+<tr><td><code>--dir &lt;folder&gt;</code></td><td>optional, reads the input from another folder instead of the current one</td></tr>
+</table>
+<p>The output goes to the console, one block per document, from most to least similar. Documents with the same rate keep their file order.</p>
+<pre class="out">1) document18.txt   similarity 26.7%   (8 of 30 sentences)
+   "&lt;sentence in main_doc.txt&gt;"
+   "&lt;matching sentence in document18.txt&gt;"   [edited: replaced "should" with "must"; inserted "also"]
+   ... up to the 5 most similar sentence pairs, then "... and 3 more pairs"
+2) document14.txt   similarity 16.7%   (5 of 30 sentences)</pre>
+<p>Exact copies are printed as they are. For edited copies we also print which word edits turn the document sentence into the
+main_doc sentence. There are two helper files that are not part of the graded program: <code>tests/selftest.cpp</code>
+(run with <code>make test</code>; 13 checks, one of them compares the banded and the full edit distance on 200 000 random inputs) and
+<code>tools/make_test_set.py</code>, which we used to make bigger and harder test sets where we know the right answer.</p>
+
+<h3>Source code</h3>
+<div class="codefile">src/plagiarism.h</div><pre class="code">// =====================================================================
+// CMP3005 Term Project - Plagiarism detector
+// plagiarism.h : shared data types and the functions of every module.
+//
+// Modules
+//   text_processing.cpp  reading files, sentence splitting, tokenizing,
+//                        own hash table (FNV-1a, open addressing) for word ids
+//   similarity.cpp       matching rule, word-level edit distance (OSA),
+//                        banded edit distance, edit descriptions
+//   brute_force.cpp      brute-force version (every pair of sentences)
+//   efficient.cpp        efficient version (inverted index of main_doc +
+//                        pigeonhole filter + banded edit distance)
+//   output.cpp           ranking and printing of the results
+//   benchmark.cpp        running-time measurements for the report
+//   main.cpp             command line, program entry point
+// =====================================================================
+#ifndef PLAGIARISM_H
+#define PLAGIARISM_H
+
+#include &lt;cstdint&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+
+// ----------------------------- data model -----------------------------
+
+// One sentence of a document.
+struct Sentence {
+    std::string text;               // original text, whitespace collapsed (printed)
+    std::vector&lt;int&gt; ids;           // its words, lower-cased, mapped to integer ids
+};
+
+// One input file split into sentences.
+struct Document {
+    std::string name;               // file name, e.g. &quot;document7.txt&quot;
+    std::vector&lt;Sentence&gt; sentences;
+};
+
+// Everything the program reads.
+struct Corpus {
+    Document main;                  // main_doc.txt
+    std::vector&lt;Document&gt; docs;     // documents/*.txt in natural order
+    int vocabularySize = 0;         // number of distinct (lower-cased) words
+};
+
+// Best match of one main-document sentence inside one document.
+struct Match {
+    int mainIdx = -1;     // sentence index in main_doc.txt
+    int docSentIdx = -1;  // sentence index in the document (-1 = no match)
+    int distance = -1;    // word-level edit distance of the pair
+};
+
+// best[d][i] = best match of main sentence i in document d.
+// Both versions of the algorithm fill this table; their tables must be equal.
+struct MatchTable {
+    std::vector&lt;std::vector&lt;Match&gt;&gt; best;
+
+    void init(int numDocs, int numMainSentences);
+    // Keeps the pair with the smallest distance (ties: smallest docSentIdx)
+    // so brute force and efficient version always choose the same pair.
+    void offer(int doc, int mainIdx, int docSentIdx, int distance);
+    bool operator==(const MatchTable&amp; other) const;
+};
+
+// --------------------------- text_processing ---------------------------
+
+// Reads main_doc.txt and documents/*.txt below `folder`.
+// Returns false (with a message in `error`) if something is missing.
+bool loadCorpus(const std::string&amp; folder, Corpus&amp; corpus, std::string&amp; error);
+
+// Splits raw text into sentences, and a sentence into its words as written
+// (punctuation removed). Sentence::ids holds exactly these words, lower-cased.
+std::vector&lt;std::string&gt; splitSentences(const std::string&amp; text);
+std::vector&lt;std::string&gt; splitWords(const std::string&amp; sentence);
+
+// ------------------------------ similarity ------------------------------
+
+// Matching rule: number of word edits allowed between two sentences
+// with la and lb words (see similarity.cpp for the definition).
+int allowedEdits(int la, int lb);
+// Largest allowedEdits(la, lb) over every lb that could still match.
+int maxAllowedEdits(int la);
+
+// Full word-level optimal-string-alignment distance, O(|a|*|b|).
+int osaDistance(const std::vector&lt;int&gt;&amp; a, const std::vector&lt;int&gt;&amp; b);
+// Same distance, but only cells with |i-j| &lt;= k are computed, O(|a|*k).
+// Returns k+1 as soon as the distance is known to be larger than k.
+int boundedOsaDistance(const std::vector&lt;int&gt;&amp; a, const std::vector&lt;int&gt;&amp; b, int k);
+
+// Human readable list of the edits that turn docSentence into mainSentence,
+// e.g. replaced &quot;should&quot; with &quot;must&quot;; inserted &quot;also&quot;.
+std::string describeEdits(const Sentence&amp; docSentence, const Sentence&amp; mainSentence);
+
+// ------------------------------ algorithms ------------------------------
+
+MatchTable runBruteForce(const Corpus&amp; corpus);
+MatchTable runEfficient(const Corpus&amp; corpus);
+
+// -------------------------------- output --------------------------------
+
+void printResults(const Corpus&amp; corpus, const MatchTable&amp; table);
+
+// ------------------------------ benchmark ------------------------------
+
+// Times both versions on growing numbers of documents and writes a CSV.
+void runBenchmark(const Corpus&amp; corpus, int repetitions, const std::string&amp; csvPath);
+
+#endif
+</pre>
+<div class="codefile">src/main.cpp</div><pre class="code">// =====================================================================
+// main.cpp
+// CMP3005 Term Project - Plagiarism detector (entry point)
+//
+// The program takes no user input. Run it inside the folder that holds
+// main_doc.txt and documents/ :
+//
+//   plagiarism                  efficient version (default)
+//   plagiarism brute            brute-force version
+//   plagiarism compare          both versions, checks equal results, speedup
+//   plagiarism benchmark [r]    timings for &gt;= 5 numbers of documents,
+//                               best of r runs (default 3), -&gt; benchmark.csv
+//
+// Optional: --dir &lt;folder&gt; reads the input from another folder.
+// =====================================================================
+#include &quot;plagiarism.h&quot;
+
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+#include &lt;cstdlib&gt;
+#include &lt;string&gt;
+
+namespace {
+
+using Clock = std::chrono::steady_clock;
+
+double millisecondsSince(Clock::time_point start) {
+    return std::chrono::duration&lt;double, std::milli&gt;(Clock::now() - start).count();
+}
+
+void printUsage() {
+    std::printf(
+        &quot;usage: plagiarism [efficient | brute | compare | benchmark [repetitions]] [--dir &lt;folder&gt;]\n&quot;
+        &quot;Reads &lt;folder&gt;/main_doc.txt and &lt;folder&gt;/documents/*.txt (default folder: current folder).\n&quot;);
+}
+
+void printHeader(const Corpus&amp; corpus, const char* version) {
+    long long docSentences = 0;
+    for (const Document&amp; d : corpus.docs) docSentences += (long long)d.sentences.size();
+    std::printf(&quot;Plagiarism detector (%s version)\n&quot;, version);
+    std::printf(&quot;main_doc.txt: %d sentences | documents/: %d files, %lld sentences\n\n&quot;,
+                (int)corpus.main.sentences.size(), (int)corpus.docs.size(), docSentences);
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    std::string mode = &quot;efficient&quot;;
+    std::string folder = &quot;.&quot;;
+    int repetitions = 3;
+
+    for (int i = 1; i &lt; argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == &quot;--dir&quot; &amp;&amp; i + 1 &lt; argc) {
+            folder = argv[++i];
+        } else if (arg == &quot;efficient&quot; || arg == &quot;brute&quot; || arg == &quot;compare&quot; || arg == &quot;benchmark&quot;) {
+            mode = arg;
+        } else if (mode == &quot;benchmark&quot; &amp;&amp; std::atoi(arg.c_str()) &gt; 0) {
+            repetitions = std::atoi(arg.c_str());
+        } else {
+            printUsage();
+            return 1;
+        }
+    }
+
+    // 1. Read and preprocess all files (same for both versions).
+    const auto loadStart = Clock::now();
+    Corpus corpus;
+    std::string error;
+    if (!loadCorpus(folder, corpus, error)) {
+        std::fprintf(stderr, &quot;Error: %s\n&quot;, error.c_str());
+        printUsage();
+        return 1;
+    }
+    const double loadMs = millisecondsSince(loadStart);
+
+    if (mode == &quot;benchmark&quot;) {
+        runBenchmark(corpus, repetitions, &quot;benchmark.csv&quot;);
+        return 0;
+    }
+
+    // 2. Find the matches.
+    MatchTable table;
+    double bruteMs = -1, efficientMs = -1;
+    if (mode == &quot;brute&quot; || mode == &quot;compare&quot;) {
+        const auto start = Clock::now();
+        table = runBruteForce(corpus);
+        bruteMs = millisecondsSince(start);
+    }
+    if (mode == &quot;efficient&quot; || mode == &quot;compare&quot;) {
+        const auto start = Clock::now();
+        MatchTable fast = runEfficient(corpus);
+        efficientMs = millisecondsSince(start);
+        if (mode == &quot;compare&quot; &amp;&amp; !(fast == table)) {
+            std::fprintf(stderr, &quot;Error: brute-force and efficient results differ!\n&quot;);
+            return 2;
+        }
+        table = std::move(fast);
+    }
+
+    // 3. Print the ranked documents and the running times.
+    printHeader(corpus, mode == &quot;brute&quot; ? &quot;brute-force&quot; : &quot;efficient&quot;);
+    printResults(corpus, table);
+
+    std::printf(&quot;\nReading and preprocessing the files: %.2f ms\n&quot;, loadMs);
+    if (bruteMs &gt;= 0) std::printf(&quot;Matching, brute-force version:       %.2f ms\n&quot;, bruteMs);
+    if (efficientMs &gt;= 0) std::printf(&quot;Matching, efficient version:         %.2f ms\n&quot;, efficientMs);
+    if (mode == &quot;compare&quot;)
+        std::printf(&quot;Both versions give identical results; speedup %.1fx\n&quot;,
+                    efficientMs &gt; 0 ? bruteMs / efficientMs : 0.0);
+    return 0;
+}
+</pre>
+<div class="codefile">src/text_processing.cpp</div><pre class="code">// =====================================================================
+// text_processing.cpp
+// Reading the input files, splitting text into sentences and words,
+// and mapping every lower-cased word to a small integer id with our own
+// hash table (FNV-1a hash function + open addressing).
+//
+// All scanning is done character by character by our own code; no
+// built-in text search (find, indexOf, regex) is used.
+// =====================================================================
+#include &quot;plagiarism.h&quot;
+
+#include &lt;algorithm&gt;
+#include &lt;cstdio&gt;
+#include &lt;filesystem&gt;
+
+namespace fs = std::filesystem;
+
+// --------------------------- character classes ---------------------------
+
+static bool isSpace(char c) { return c == &#x27; &#x27; || c == &#x27;\t&#x27; || c == &#x27;\n&#x27; || c == &#x27;\r&#x27; || c == &#x27;\f&#x27; || c == &#x27;\v&#x27;; }
+static bool isUpper(char c) { return c &gt;= &#x27;A&#x27; &amp;&amp; c &lt;= &#x27;Z&#x27;; }
+static bool isLower(char c) { return c &gt;= &#x27;a&#x27; &amp;&amp; c &lt;= &#x27;z&#x27;; }
+static bool isDigit(char c) { return c &gt;= &#x27;0&#x27; &amp;&amp; c &lt;= &#x27;9&#x27;; }
+// Bytes &gt;= 128 belong to UTF-8 letters (e.g. accented characters).
+static bool isWordChar(char c) { return isUpper(c) || isLower(c) || isDigit(c) || (unsigned char)c &gt;= 128; }
+static bool isTerminator(char c) { return c == &#x27;.&#x27; || c == &#x27;!&#x27; || c == &#x27;?&#x27;; }
+static char toLower(char c) { return isUpper(c) ? (char)(c - &#x27;A&#x27; + &#x27;a&#x27;) : c; }
+
+// ------------------------------ hash table ------------------------------
+
+// Word interning table: lower-cased word -&gt; id 0, 1, 2, ...
+// Hash function: 64-bit FNV-1a, h = (h XOR byte) * prime, over the
+// lower-cased bytes. Collisions: open addressing with linear probing.
+// The table is doubled when it is half full, so a lookup is O(1) expected
+// and O(length of the word) for hashing and comparing.
+class WordTable {
+public:
+    WordTable() : slots_(1 &lt;&lt; 16, -1) {}
+
+    int size() const { return (int)hashes_.size(); }
+
+    // Returns the id of word p[0..n) (case-insensitive), adding it if new.
+    int intern(const char* p, size_t n) {
+        uint64_t h = 1469598103934665603ULL;           // FNV offset basis
+        for (size_t i = 0; i &lt; n; ++i) {
+            h ^= (unsigned char)toLower(p[i]);
+            h *= 1099511628211ULL;                     // FNV prime
+        }
+        size_t mask = slots_.size() - 1;
+        size_t pos = (size_t)(h ^ (h &gt;&gt; 29)) &amp; mask;
+        while (slots_[pos] &gt;= 0) {
+            const int id = slots_[pos];
+            if (hashes_[id] == h &amp;&amp; sameWord(id, p, n)) return id;
+            pos = (pos + 1) &amp; mask;                    // linear probing
+        }
+        const int id = size();
+        slots_[pos] = id;
+        hashes_.push_back(h);
+        start_.push_back((uint32_t)chars_.size());
+        length_.push_back((uint32_t)n);
+        for (size_t i = 0; i &lt; n; ++i) chars_ += toLower(p[i]);
+        if (2 * hashes_.size() &gt; slots_.size()) grow();
+        return id;
+    }
+
+private:
+    bool sameWord(int id, const char* p, size_t n) const {
+        if (length_[id] != n) return false;
+        const char* stored = chars_.data() + start_[id];
+        for (size_t i = 0; i &lt; n; ++i)
+            if (stored[i] != toLower(p[i])) return false;
+        return true;
+    }
+
+    void grow() {
+        std::vector&lt;int&gt; bigger(slots_.size() * 2, -1);
+        const size_t mask = bigger.size() - 1;
+        for (int id = 0; id &lt; size(); ++id) {
+            const uint64_t h = hashes_[id];
+            size_t pos = (size_t)(h ^ (h &gt;&gt; 29)) &amp; mask;
+            while (bigger[pos] &gt;= 0) pos = (pos + 1) &amp; mask;
+            bigger[pos] = id;
+        }
+        slots_.swap(bigger);
+    }
+
+    std::vector&lt;int&gt; slots_;          // -1 = empty, otherwise a word id
+    std::vector&lt;uint64_t&gt; hashes_;    // per id: full 64-bit hash
+    std::vector&lt;uint32_t&gt; start_;     // per id: position of the word in chars_
+    std::vector&lt;uint32_t&gt; length_;    // per id: length of the word
+    std::string chars_;               // all distinct words, lower-cased, concatenated
+};
+
+// ------------------------------ sentences ------------------------------
+
+// Words that end with &#x27;.&#x27; but normally do not end a sentence.
+static bool isAbbreviation(const std::string&amp; w) {
+    static const char* const list[] = {
+        &quot;Mr&quot;, &quot;Mrs&quot;, &quot;Ms&quot;, &quot;Dr&quot;, &quot;St&quot;, &quot;Jr&quot;, &quot;Sr&quot;, &quot;Messrs&quot;, &quot;Mt&quot;, &quot;Ft&quot;,
+        &quot;Gen&quot;, &quot;Col&quot;, &quot;Capt&quot;, &quot;Lieut&quot;, &quot;Lt&quot;, &quot;Gov&quot;, &quot;Hon&quot;, &quot;Rev&quot;, &quot;Prof&quot;, &quot;No&quot;, &quot;vs&quot;};
+    for (const char* a : list)
+        if (w == a) return true;
+    // A single capital letter is an initial (&quot;James B. Eads&quot;, &quot;U.S.&quot;).
+    return w.size() == 1 &amp;&amp; isUpper(w[0]);
+}
+
+// Copies text[from, to) with runs of whitespace collapsed to one space, trimmed.
+static std::string collapseSpaces(const std::string&amp; s, size_t from, size_t to) {
+    std::string out(to - from, &#x27;\0&#x27;);             // never longer than the input
+    size_t len = 0;
+    bool pendingSpace = false;
+    for (size_t i = from; i &lt; to; ++i) {
+        const char c = s[i];
+        if (isSpace(c)) { pendingSpace = len &gt; 0; continue; }
+        if (pendingSpace) { out[len++] = &#x27; &#x27;; pendingSpace = false; }
+        out[len++] = c;
+    }
+    out.resize(len);
+    return out;
+}
+
+// A sentence ends at &#x27;.&#x27;, &#x27;!&#x27; or &#x27;?&#x27; (a run like &quot;..&quot; or &quot;?!&quot; counts as one)
+// that is directly followed by whitespace and then a capital letter, digit,
+// quote or bracket, unless the word before the &#x27;.&#x27; is an abbreviation.
+// A terminator followed by a closing quote (`do.&quot; The`) does not end the
+// sentence: the sample documents are built from paragraphs of exactly six
+// sentences, and only this rule reproduces six sentences in every one of
+// them. An empty line (new paragraph) and the end of the text also end a
+// sentence.
+std::vector&lt;std::string&gt; splitSentences(const std::string&amp; text) {
+    std::vector&lt;std::string&gt; sentences;
+    const size_t n = text.size();
+    size_t start = 0;
+
+    auto emit = [&amp;](size_t end) {
+        if (end &lt;= start) return;                 // nothing since the last boundary
+        std::string s = collapseSpaces(text, start, end);
+        if (!s.empty()) sentences.push_back(std::move(s));
+    };
+
+    for (size_t i = 0; i &lt; n; ++i) {
+        const char c = text[i];
+
+        // Paragraph break: newline, optional spaces, newline.
+        if (c == &#x27;\n&#x27;) {
+            size_t j = i + 1;
+            while (j &lt; n &amp;&amp; (text[j] == &#x27; &#x27; || text[j] == &#x27;\t&#x27; || text[j] == &#x27;\r&#x27;)) ++j;
+            if (j &lt; n &amp;&amp; text[j] == &#x27;\n&#x27;) { emit(i); start = j + 1; i = j; }
+            continue;
+        }
+        if (!isTerminator(c)) continue;
+
+        // Absorb a run of terminators (&quot;..&quot;, &quot;?!&quot;); it must be followed by whitespace.
+        size_t end = i + 1;
+        while (end &lt; n &amp;&amp; isTerminator(text[end])) ++end;
+        if (end &lt; n &amp;&amp; !isSpace(text[end])) { i = end - 1; continue; }   // e.g. &quot;1.5&quot;, &quot;U.S.&quot;, `.&quot;`
+
+        size_t next = end;
+        while (next &lt; n &amp;&amp; isSpace(text[next])) ++next;
+        bool boundary = (next == n);
+        if (!boundary) {
+            const char d = text[next];
+            boundary = isUpper(d) || isDigit(d) || d == &#x27;&quot;&#x27; || d == &#x27;\&#x27;&#x27; || d == &#x27;(&#x27; || d == &#x27;[&#x27;;
+        }
+        if (boundary &amp;&amp; c == &#x27;.&#x27;) {
+            // The word right before the &#x27;.&#x27; decides whether it is an abbreviation.
+            size_t wStart = i;
+            while (wStart &gt; start &amp;&amp; (isUpper(text[wStart - 1]) || isLower(text[wStart - 1]))) --wStart;
+            if (isAbbreviation(text.substr(wStart, i - wStart))) boundary = false;
+        }
+        if (boundary) {
+            emit(end);
+            start = next;
+        }
+        i = end - 1;
+    }
+    emit(n);
+    return sentences;
+}
+
+// -------------------------------- words --------------------------------
+
+// A word is a run of letters/digits; an apostrophe or hyphen between two
+// such characters stays inside the word (&quot;Majesty&#x27;s&quot;, &quot;well-nigh&quot;).
+// Calls onWord(start, length) for every word of s.
+template &lt;typename OnWord&gt;
+static void scanWords(const std::string&amp; s, OnWord onWord) {
+    const size_t n = s.size();
+    size_t i = 0;
+    while (i &lt; n) {
+        if (!isWordChar(s[i])) { ++i; continue; }
+        const size_t start = i;
+        while (i &lt; n &amp;&amp; (isWordChar(s[i]) ||
+                         ((s[i] == &#x27;\&#x27;&#x27; || s[i] == &#x27;-&#x27;) &amp;&amp; i + 1 &lt; n &amp;&amp; isWordChar(s[i + 1]))))
+            ++i;
+        onWord(start, i - start);
+    }
+}
+
+std::vector&lt;std::string&gt; splitWords(const std::string&amp; s) {
+    std::vector&lt;std::string&gt; words;
+    scanWords(s, [&amp;](size_t start, size_t len) { words.push_back(s.substr(start, len)); });
+    return words;
+}
+
+// ------------------------------- loading -------------------------------
+
+// Reads a whole file into `out` with one fread call.
+static bool readFile(const fs::path&amp; path, std::string&amp; out) {
+    std::error_code ec;
+    const uintmax_t size = fs::file_size(path, ec);
+    if (ec) return false;
+    std::FILE* f = std::fopen(path.string().c_str(), &quot;rb&quot;);
+    if (!f) return false;
+    out.assign((size_t)size, &#x27;\0&#x27;);
+    const size_t got = size &gt; 0 ? std::fread(&amp;out[0], 1, (size_t)size, f) : 0;
+    std::fclose(f);
+    out.resize(got);
+    // Skip a UTF-8 byte order mark if present.
+    if (out.size() &gt;= 3 &amp;&amp; (unsigned char)out[0] == 0xEF &amp;&amp; (unsigned char)out[1] == 0xBB &amp;&amp;
+        (unsigned char)out[2] == 0xBF)
+        out.erase(0, 3);
+    return true;
+}
+
+static Document buildDocument(const std::string&amp; name, const std::string&amp; text, WordTable&amp; words) {
+    Document doc;
+    doc.name = name;
+    for (std::string&amp; st : splitSentences(text)) {
+        Sentence s;
+        scanWords(st, [&amp;](size_t start, size_t len) { s.ids.push_back(words.intern(st.data() + start, len)); });
+        if (s.ids.empty()) continue;              // e.g. a lone &quot;...&quot;
+        s.text = std::move(st);
+        doc.sentences.push_back(std::move(s));
+    }
+    return doc;
+}
+
+// &quot;document2.txt&quot; &lt; &quot;document10.txt&quot;: digit runs are compared as numbers.
+static bool naturalLess(const std::string&amp; a, const std::string&amp; b) {
+    size_t i = 0, j = 0;
+    while (i &lt; a.size() &amp;&amp; j &lt; b.size()) {
+        if (isDigit(a[i]) &amp;&amp; isDigit(b[j])) {
+            size_t i2 = i, j2 = j;
+            while (i2 &lt; a.size() &amp;&amp; a[i2] == &#x27;0&#x27;) ++i2;   // ignore leading zeros
+            while (j2 &lt; b.size() &amp;&amp; b[j2] == &#x27;0&#x27;) ++j2;
+            size_t ie = i2, je = j2;
+            while (ie &lt; a.size() &amp;&amp; isDigit(a[ie])) ++ie;
+            while (je &lt; b.size() &amp;&amp; isDigit(b[je])) ++je;
+            if (ie - i2 != je - j2) return ie - i2 &lt; je - j2;
+            for (size_t p = 0; p &lt; ie - i2; ++p)
+                if (a[i2 + p] != b[j2 + p]) return a[i2 + p] &lt; b[j2 + p];
+            i = ie; j = je;
+        } else {
+            if (a[i] != b[j]) return a[i] &lt; b[j];
+            ++i; ++j;
+        }
+    }
+    return a.size() - i &lt; b.size() - j;
+}
+
+bool loadCorpus(const std::string&amp; folder, Corpus&amp; corpus, std::string&amp; error) {
+    const fs::path base(folder);
+    const fs::path mainPath = base / &quot;main_doc.txt&quot;;
+    const fs::path docsPath = base / &quot;documents&quot;;
+    WordTable words;
+
+    std::string text;
+    if (!readFile(mainPath, text)) {
+        error = &quot;cannot read &quot; + mainPath.string();
+        return false;
+    }
+    corpus.main = buildDocument(&quot;main_doc.txt&quot;, text, words);
+
+    std::error_code ec;
+    if (!fs::is_directory(docsPath, ec)) {
+        error = &quot;folder not found: &quot; + docsPath.string();
+        return false;
+    }
+    std::vector&lt;std::string&gt; names;
+    for (const auto&amp; entry : fs::directory_iterator(docsPath, ec)) {
+        if (!entry.is_regular_file()) continue;
+        const std::string name = entry.path().filename().string();
+        const bool isTxt = name.size() &gt; 4 &amp;&amp; name.compare(name.size() - 4, 4, &quot;.txt&quot;) == 0;
+        if (isTxt &amp;&amp; name[0] != &#x27;.&#x27;) names.push_back(name);
+    }
+    std::sort(names.begin(), names.end(), naturalLess);
+    if (names.empty()) {
+        error = &quot;no .txt files in &quot; + docsPath.string();
+        return false;
+    }
+
+    corpus.docs.clear();
+    corpus.docs.reserve(names.size());
+    for (const std::string&amp; name : names) {
+        if (!readFile(docsPath / name, text)) {
+            error = &quot;cannot read &quot; + (docsPath / name).string();
+            return false;
+        }
+        corpus.docs.push_back(buildDocument(name, text, words));
+    }
+    corpus.vocabularySize = words.size();
+    return true;
+}
+</pre>
+<div class="codefile">src/similarity.cpp</div><pre class="code">// =====================================================================
+// similarity.cpp
+// The matching rule and the word-level edit distance.
+//
+// MATCHING RULE
+//   Both sentences are compared as sequences of lower-cased words
+//   (punctuation ignored). The distance between them is the optimal
+//   string alignment (OSA) distance on words: the smallest number of
+//       - word insertions,
+//       - word deletions,
+//       - word replacements,
+//       - swaps of two neighbouring words
+//   that turn one sentence into the other.
+//   Two sentences match  &lt;=&gt;  distance &lt;= allowedEdits(la, lb),
+//   where allowedEdits = 30% of the word count of the longer sentence
+//   (rounded down). So a 4-word sentence may differ by 1 edit, a
+//   20-word sentence by 6 edits; sentences of 1-3 words must be equal.
+//   (30% was chosen with tools/make_test_set.py: it finds sentences with
+//   up to 3 random edits, while no two different sentences of the sample
+//   documents are even within 40% of each other, so no false matches.)
+// =====================================================================
+#include &quot;plagiarism.h&quot;
+
+#include &lt;algorithm&gt;
+
+// Allowed share of edits, in percent of the longer sentence&#x27;s word count.
+static const int EDIT_PERCENT = 30;
+
+int allowedEdits(int la, int lb) {
+    const int longer = std::max(la, lb);
+    return longer * EDIT_PERCENT / 100;          // integer arithmetic = floor
+}
+
+// A document sentence with lb words can only match if |la - lb| &lt;= k,
+// because every edit changes the length by at most one word. Longer lb
+// gives a larger k, so we walk lb upwards until the length gap exceeds k.
+int maxAllowedEdits(int la) {
+    int best = allowedEdits(la, la);
+    for (int lb = la + 1;; ++lb) {
+        const int k = allowedEdits(la, lb);
+        if (lb - la &gt; k) break;
+        best = std::max(best, k);
+    }
+    return best;
+}
+
+// ---------------------------------------------------------------------
+// Full OSA distance (used by the brute-force version).
+// d[i][j] = distance between the first i words of a and first j words of b
+//   d[i][j] = min( d[i-1][j] + 1,                        delete a[i-1]
+//                  d[i][j-1] + 1,                        insert b[j-1]
+//                  d[i-1][j-1] + (a[i-1] != b[j-1]),     keep / replace
+//                  d[i-2][j-2] + 1  if a[i-1]==b[j-2] and a[i-2]==b[j-1] )  swap
+// Only three rows are kept: O(|a|*|b|) time, O(|b|) memory.
+// ---------------------------------------------------------------------
+int osaDistance(const std::vector&lt;int&gt;&amp; a, const std::vector&lt;int&gt;&amp; b) {
+    const int n = (int)a.size(), m = (int)b.size();
+    std::vector&lt;int&gt; prev2(m + 1), prev(m + 1), cur(m + 1);
+    for (int j = 0; j &lt;= m; ++j) prev[j] = j;
+    for (int i = 1; i &lt;= n; ++i) {
+        cur[0] = i;
+        for (int j = 1; j &lt;= m; ++j) {
+            int v = std::min(prev[j] + 1, cur[j - 1] + 1);
+            v = std::min(v, prev[j - 1] + (a[i - 1] != b[j - 1] ? 1 : 0));
+            if (i &gt; 1 &amp;&amp; j &gt; 1 &amp;&amp; a[i - 1] == b[j - 2] &amp;&amp; a[i - 2] == b[j - 1])
+                v = std::min(v, prev2[j - 2] + 1);
+            cur[j] = v;
+        }
+        std::swap(prev2, prev);
+        std::swap(prev, cur);
+    }
+    return prev[m];
+}
+
+// ---------------------------------------------------------------------
+// Banded OSA distance (used by the efficient version).
+// If the distance is &lt;= k, the optimal alignment never leaves the band
+// |i - j| &lt;= k, so only 2k+1 cells per row are computed: O(|a| * k).
+// Values are capped at k+1 (&quot;too far&quot;), and we stop early as soon as a
+// whole row is &gt; k, because values never decrease further down.
+// ---------------------------------------------------------------------
+int boundedOsaDistance(const std::vector&lt;int&gt;&amp; a, const std::vector&lt;int&gt;&amp; b, int k) {
+    const int n = (int)a.size(), m = (int)b.size();
+    const int TOO_FAR = k + 1;
+    if (n - m &gt; k || m - n &gt; k) return TOO_FAR;            // length filter
+
+    // Reused buffers: the program is single-threaded.
+    static std::vector&lt;int&gt; buf0, buf1, buf2;
+    if ((int)buf0.size() &lt; m + 2) { buf0.resize(m + 2); buf1.resize(m + 2); buf2.resize(m + 2); }
+    int* prev2 = buf0.data();
+    int* prev = buf1.data();
+    int* cur = buf2.data();
+
+    // Row 0: d[0][j] = j inside the band.
+    for (int j = 0; j &lt;= std::min(m, k); ++j) prev[j] = j;
+    if (k + 1 &lt;= m) prev[k + 1] = TOO_FAR;
+
+    for (int i = 1; i &lt;= n; ++i) {
+        const int lo = std::max(1, i - k), hi = std::min(m, i + k);
+        cur[0] = (i &lt;= k) ? i : TOO_FAR;                     // column 0
+        if (lo &gt; 1) cur[lo - 1] = TOO_FAR;                   // left edge of band
+        int rowMin = cur[0];
+        for (int j = lo; j &lt;= hi; ++j) {
+            int v = std::min(prev[j] + 1, cur[j - 1] + 1);
+            v = std::min(v, prev[j - 1] + (a[i - 1] != b[j - 1] ? 1 : 0));
+            if (i &gt; 1 &amp;&amp; j &gt; 1 &amp;&amp; a[i - 1] == b[j - 2] &amp;&amp; a[i - 2] == b[j - 1])
+                v = std::min(v, prev2[j - 2] + 1);
+            if (v &gt; TOO_FAR) v = TOO_FAR;
+            cur[j] = v;
+            if (v &lt; rowMin) rowMin = v;
+        }
+        if (hi + 1 &lt;= m) cur[hi + 1] = TOO_FAR;              // right edge of band
+        if (rowMin &gt; k) return TOO_FAR;                      // early termination
+        int* t = prev2; prev2 = prev; prev = cur; cur = t;   // rotate rows
+    }
+    return std::min(prev[m], TOO_FAR);
+}
+
+// ---------------------------------------------------------------------
+// Edit description for printing: full DP table, then walk back from the
+// bottom-right corner and name every step that costs 1.
+// Source = document sentence, target = main_doc sentence, so the words
+// are reported as &quot;what the copier did to the original sentence&quot;.
+// ---------------------------------------------------------------------
+std::string describeEdits(const Sentence&amp; docSentence, const Sentence&amp; mainSentence) {
+    const std::vector&lt;int&gt;&amp; x = docSentence.ids;
+    const std::vector&lt;int&gt;&amp; y = mainSentence.ids;
+    const int n = (int)x.size(), m = (int)y.size();
+    std::vector&lt;std::vector&lt;int&gt;&gt; d(n + 1, std::vector&lt;int&gt;(m + 1, 0));
+    for (int i = 0; i &lt;= n; ++i) d[i][0] = i;
+    for (int j = 0; j &lt;= m; ++j) d[0][j] = j;
+    for (int i = 1; i &lt;= n; ++i)
+        for (int j = 1; j &lt;= m; ++j) {
+            int v = std::min(d[i - 1][j] + 1, d[i][j - 1] + 1);
+            v = std::min(v, d[i - 1][j - 1] + (x[i - 1] != y[j - 1] ? 1 : 0));
+            if (i &gt; 1 &amp;&amp; j &gt; 1 &amp;&amp; x[i - 1] == y[j - 2] &amp;&amp; x[i - 2] == y[j - 1])
+                v = std::min(v, d[i - 2][j - 2] + 1);
+            d[i][j] = v;
+        }
+
+    // Words as written (same tokenizer as the ids, so positions line up).
+    const std::vector&lt;std::string&gt; xw = splitWords(docSentence.text);
+    const std::vector&lt;std::string&gt; yw = splitWords(mainSentence.text);
+    auto q = [](const std::string&amp; w) { return &quot;\&quot;&quot; + w + &quot;\&quot;&quot;; };
+    std::vector&lt;std::string&gt; ops;                       // collected backwards
+    int i = n, j = m;
+    while (i &gt; 0 || j &gt; 0) {
+        if (i &gt; 0 &amp;&amp; j &gt; 0 &amp;&amp; x[i - 1] == y[j - 1] &amp;&amp; d[i][j] == d[i - 1][j - 1]) {
+            --i; --j;                                   // same word
+        } else if (i &gt; 1 &amp;&amp; j &gt; 1 &amp;&amp; x[i - 1] == y[j - 2] &amp;&amp; x[i - 2] == y[j - 1] &amp;&amp;
+                   d[i][j] == d[i - 2][j - 2] + 1) {
+            ops.push_back(&quot;swapped &quot; + q(xw[i - 2]) + &quot; and &quot; + q(xw[i - 1]));
+            i -= 2; j -= 2;
+        } else if (i &gt; 0 &amp;&amp; j &gt; 0 &amp;&amp; d[i][j] == d[i - 1][j - 1] + 1) {
+            ops.push_back(&quot;replaced &quot; + q(xw[i - 1]) + &quot; with &quot; + q(yw[j - 1]));
+            --i; --j;
+        } else if (i &gt; 0 &amp;&amp; d[i][j] == d[i - 1][j] + 1) {
+            ops.push_back(&quot;deleted &quot; + q(xw[i - 1]));
+            --i;
+        } else {
+            ops.push_back(&quot;inserted &quot; + q(yw[j - 1]));
+            --j;
+        }
+    }
+    std::string out;
+    for (int t = (int)ops.size() - 1; t &gt;= 0; --t) {
+        if (!out.empty()) out += &quot;; &quot;;
+        out += ops[t];
+    }
+    return out;
+}
+
+// ----------------------------- MatchTable -----------------------------
+
+void MatchTable::init(int numDocs, int numMainSentences) {
+    best.assign(numDocs, std::vector&lt;Match&gt;(numMainSentences));
+    for (int d = 0; d &lt; numDocs; ++d)
+        for (int i = 0; i &lt; numMainSentences; ++i) best[d][i].mainIdx = i;
+}
+
+void MatchTable::offer(int doc, int mainIdx, int docSentIdx, int distance) {
+    Match&amp; m = best[doc][mainIdx];
+    if (m.docSentIdx &lt; 0 || distance &lt; m.distance ||
+        (distance == m.distance &amp;&amp; docSentIdx &lt; m.docSentIdx)) {
+        m.docSentIdx = docSentIdx;
+        m.distance = distance;
+    }
+}
+
+bool MatchTable::operator==(const MatchTable&amp; other) const {
+    if (best.size() != other.best.size()) return false;
+    for (size_t d = 0; d &lt; best.size(); ++d) {
+        if (best[d].size() != other.best[d].size()) return false;
+        for (size_t i = 0; i &lt; best[d].size(); ++i) {
+            const Match&amp; p = best[d][i];
+            const Match&amp; q = other.best[d][i];
+            if (p.docSentIdx != q.docSentIdx || p.distance != q.distance) return false;
+        }
+    }
+    return true;
+}
+</pre>
+<div class="codefile">src/brute_force.cpp</div><pre class="code">// =====================================================================
+// brute_force.cpp
+// Brute-force version: every sentence of main_doc.txt is compared with
+// every sentence of every document using the full edit-distance table.
+//
+//   for each sentence a of main_doc.txt                 (n sentences)
+//       for each document D                             (m documents)
+//           for each sentence b of D                    (s sentences per doc)
+//               dist = osaDistance(a, b)                (O(w^2) for w words)
+//               if dist &lt;= allowedEdits(|a|, |b|): record (D, a, b, dist)
+//
+// Time: O(n * m * s * w^2)
+// =====================================================================
+#include &quot;plagiarism.h&quot;
+
+MatchTable runBruteForce(const Corpus&amp; corpus) {
+    const std::vector&lt;Sentence&gt;&amp; mainSentences = corpus.main.sentences;
+    MatchTable table;
+    table.init((int)corpus.docs.size(), (int)mainSentences.size());
+
+    for (int i = 0; i &lt; (int)mainSentences.size(); ++i) {
+        const std::vector&lt;int&gt;&amp; a = mainSentences[i].ids;
+        for (int d = 0; d &lt; (int)corpus.docs.size(); ++d) {
+            const std::vector&lt;Sentence&gt;&amp; docSentences = corpus.docs[d].sentences;
+            for (int s = 0; s &lt; (int)docSentences.size(); ++s) {
+                const std::vector&lt;int&gt;&amp; b = docSentences[s].ids;
+                const int dist = osaDistance(a, b);
+                if (dist &lt;= allowedEdits((int)a.size(), (int)b.size()))
+                    table.offer(d, i, s, dist);
+            }
+        }
+    }
+    return table;
+}
+</pre>
+<div class="codefile">src/efficient.cpp</div><pre class="code">// =====================================================================
+// efficient.cpp
+// Efficient version: inverted index of main_doc.txt + pigeonhole filter
+// + banded edit distance. Every document sentence is read only once.
+//
+// 1. INDEX the small side, main_doc.txt  (O(n * w))
+//      postings[word] = main sentences that contain the word (each once)
+//      byLength[L]    = main sentences with exactly L words
+//
+// 2. SCAN every sentence b of every document once, k = maxAllowedEdits(|b|).
+//    Pigeonhole argument: if b matches a main sentence a, at most k edits
+//    were made and every edit removes at most one word of b from a (a swap
+//    removes none). So among ANY k+1 distinct words of b, at least one
+//    also occurs in a.
+//      - If k+1 distinct words of b occur nowhere in main_doc.txt, b
+//        cannot match anything and is skipped. This is the case for
+//        almost every sentence, usually after reading only a few words.
+//      - Otherwise the probe set is: the words of b missing from main_doc
+//        (empty posting lists) plus the rarest present words, k+1 in all.
+//        Candidates = main sentences in the posting lists of the probe set.
+//      - If b has at most k distinct words (very short sentences) the
+//        argument does not apply; then every main sentence whose length is
+//        within k of |b| is a candidate (from byLength).
+//    No true match is ever lost, so the result equals the brute force.
+//
+// 3. VERIFY each candidate with three checks, cheapest first:
+//      length filter       ||a| - |b|| &lt;= k                      O(1)
+//      bag-of-words filter max(|a|,|b|) - common words &lt;= k      O(w)
+//      banded edit distance boundedOsaDistance(a, b, k) &lt;= k     O(w * k)
+// =====================================================================
+#include &quot;plagiarism.h&quot;
+
+#include &lt;algorithm&gt;
+
+namespace {
+
+class MainDocIndex {
+public:
+    MainDocIndex(const Document&amp; mainDoc, int vocabularySize)
+        : main_(mainDoc), postings_(vocabularySize), wordSeen_(vocabularySize, -1) {
+        const std::vector&lt;Sentence&gt;&amp; sentences = main_.sentences;
+        for (int i = 0; i &lt; (int)sentences.size(); ++i) {
+            for (int w : sentences[i].ids) {
+                if (wordSeen_[w] == i) continue;          // each sentence once per word
+                wordSeen_[w] = i;
+                postings_[w].push_back(i);
+            }
+            const int len = (int)sentences[i].ids.size();
+            if (len &gt;= (int)byLength_.size()) byLength_.resize(len + 1);
+            byLength_[len].push_back(i);
+            sortedIds_.push_back(sentences[i].ids);
+            std::sort(sortedIds_.back().begin(), sortedIds_.back().end());
+        }
+        std::fill(wordSeen_.begin(), wordSeen_.end(), -1);
+        checkedBy_.assign(sentences.size(), -1);
+    }
+
+    // Finds the main sentences that match sentence `s` of document `doc`.
+    // `stamp` must be different for every call (used to de-duplicate).
+    void search(int doc, int s, const std::vector&lt;int&gt;&amp; b, int stamp, MatchTable&amp; table) {
+        const int k = maxAllowedEdits((int)b.size());
+
+        // Distinct words of b, split into &quot;missing from main_doc&quot; and &quot;present&quot;.
+        // As soon as k+1 distinct words are missing, b cannot match anything
+        // (pigeonhole), so we stop reading it.
+        int missing = 0;
+        present_.clear();
+        for (int w : b) {
+            if (wordSeen_[w] == stamp) continue;
+            wordSeen_[w] = stamp;
+            if (!postings_[w].empty()) present_.push_back(w);
+            else if (++missing &gt; k) return;
+        }
+        const int distinct = missing + (int)present_.size();
+        sortedB_.assign(b.begin(), b.end());             // for the bag-of-words filter
+        std::sort(sortedB_.begin(), sortedB_.end());
+
+        if (distinct &gt;= k + 1) {
+            const int probes = k + 1 - missing;           // rarest present words to probe
+            std::partial_sort(present_.begin(), present_.begin() + probes, present_.end(),
+                              [this](int x, int y) { return postings_[x].size() &lt; postings_[y].size(); });
+            for (int t = 0; t &lt; probes; ++t)
+                for (int a : postings_[present_[t]]) verify(a, doc, s, b, stamp, table);
+        } else {
+            // Too few distinct words for the pigeonhole argument: length buckets.
+            const int lb = (int)b.size();
+            for (int len = std::max(0, lb - k); len &lt;= lb + k &amp;&amp; len &lt; (int)byLength_.size(); ++len)
+                for (int a : byLength_[len]) verify(a, doc, s, b, stamp, table);
+        }
+    }
+
+private:
+    void verify(int a, int doc, int s, const std::vector&lt;int&gt;&amp; b, int stamp, MatchTable&amp; table) {
+        if (checkedBy_[a] == stamp) return;               // already checked for this b
+        checkedBy_[a] = stamp;
+        const std::vector&lt;int&gt;&amp; av = main_.sentences[a].ids;
+        const int la = (int)av.size(), lb = (int)b.size();
+        const int k = allowedEdits(la, lb);
+        if (la - lb &gt; k || lb - la &gt; k) return;                       // length filter
+        if (std::max(la, lb) - commonWords(sortedIds_[a], sortedB_) &gt; k) return;  // bag filter
+        const int dist = boundedOsaDistance(av, b, k);
+        if (dist &lt;= k) table.offer(doc, a, s, dist);
+    }
+
+    // Size of the multiset intersection of two sorted word lists, O(|x|+|y|).
+    // Every edit adds at most one non-shared word, so
+    // distance &gt;= max(|a|, |b|) - commonWords(a, b): a cheap lower bound.
+    static int commonWords(const std::vector&lt;int&gt;&amp; x, const std::vector&lt;int&gt;&amp; y) {
+        int i = 0, j = 0, common = 0;
+        while (i &lt; (int)x.size() &amp;&amp; j &lt; (int)y.size()) {
+            if (x[i] &lt; y[j]) ++i;
+            else if (y[j] &lt; x[i]) ++j;
+            else { ++common; ++i; ++j; }
+        }
+        return common;
+    }
+
+    const Document&amp; main_;
+    std::vector&lt;std::vector&lt;int&gt;&gt; postings_;   // word id -&gt; main sentences containing it
+    std::vector&lt;std::vector&lt;int&gt;&gt; byLength_;   // word count -&gt; main sentences
+    std::vector&lt;int&gt; wordSeen_;                // word id -&gt; last stamp (distinct words of b)
+    std::vector&lt;int&gt; checkedBy_;               // main sentence -&gt; last stamp that verified it
+    std::vector&lt;std::vector&lt;int&gt;&gt; sortedIds_;  // main sentence -&gt; its word ids, sorted
+    std::vector&lt;int&gt; present_;                 // scratch: distinct words of b found in main_doc
+    std::vector&lt;int&gt; sortedB_;                 // scratch: word ids of b, sorted
+};
+
+}  // namespace
+
+MatchTable runEfficient(const Corpus&amp; corpus) {
+    MatchTable table;
+    table.init((int)corpus.docs.size(), (int)corpus.main.sentences.size());
+
+    MainDocIndex index(corpus.main, corpus.vocabularySize);
+    int stamp = 0;
+    for (int d = 0; d &lt; (int)corpus.docs.size(); ++d) {
+        const std::vector&lt;Sentence&gt;&amp; sentences = corpus.docs[d].sentences;
+        for (int s = 0; s &lt; (int)sentences.size(); ++s) index.search(d, s, sentences[s].ids, stamp++, table);
+    }
+    return table;
+}
+</pre>
+<div class="codefile">src/output.cpp</div><pre class="code">// =====================================================================
+// output.cpp
+// Ranks the documents and prints one block per document:
+//
+// 1) document7.txt   similarity 42.5%   (17 of 40 sentences)
+//    &quot;&lt;sentence in main_doc.txt&gt;&quot;
+//    &quot;&lt;matching sentence in document7.txt&gt;&quot;   [edited: ...]
+//    ... up to the 5 most similar sentence pairs
+//
+// Similarity rate = matched sentences of main_doc.txt / all sentences
+// of main_doc.txt * 100, one decimal.
+// =====================================================================
+#include &quot;plagiarism.h&quot;
+
+#include &lt;algorithm&gt;
+#include &lt;cstdio&gt;
+
+static const int MAX_PAIRS_SHOWN = 5;
+
+// Percentage with one decimal, rounded half up using integers only.
+static std::string percent(int part, int whole) {
+    if (whole == 0) return &quot;0.0&quot;;
+    const long long tenths = ((long long)part * 1000 + whole / 2) / whole;
+    return std::to_string(tenths / 10) + &quot;.&quot; + std::to_string(tenths % 10);
+}
+
+// Pair p is more similar than q if its distance relative to the longer
+// sentence is smaller: dp/Lp &lt; dq/Lq  &lt;=&gt;  dp*Lq &lt; dq*Lp.
+static bool moreSimilar(const Match&amp; p, int lp, const Match&amp; q, int lq) {
+    const long long left = (long long)p.distance * lq, right = (long long)q.distance * lp;
+    if (left != right) return left &lt; right;
+    return p.mainIdx &lt; q.mainIdx;
+}
+
+void printResults(const Corpus&amp; corpus, const MatchTable&amp; table) {
+    const std::vector&lt;Sentence&gt;&amp; mainSentences = corpus.main.sentences;
+    const int n = (int)mainSentences.size();
+    const int numDocs = (int)corpus.docs.size();
+
+    // Matched main sentences per document.
+    std::vector&lt;std::vector&lt;Match&gt;&gt; matched(numDocs);
+    for (int d = 0; d &lt; numDocs; ++d)
+        for (const Match&amp; m : table.best[d])
+            if (m.docSentIdx &gt;= 0) matched[d].push_back(m);
+
+    // Rank documents: most matched sentences first, ties in file order.
+    std::vector&lt;int&gt; order(numDocs);
+    for (int d = 0; d &lt; numDocs; ++d) order[d] = d;
+    std::stable_sort(order.begin(), order.end(),
+                     [&amp;](int x, int y) { return matched[x].size() &gt; matched[y].size(); });
+
+    for (int rank = 0; rank &lt; numDocs; ++rank) {
+        const int d = order[rank];
+        const Document&amp; doc = corpus.docs[d];
+        std::vector&lt;Match&gt;&amp; pairs = matched[d];
+        std::printf(&quot;%d) %s   similarity %s%%   (%d of %d sentences)\n&quot;, rank + 1, doc.name.c_str(),
+                    percent((int)pairs.size(), n).c_str(), (int)pairs.size(), n);
+
+        // The most similar pairs first.
+        auto pairLength = [&amp;](const Match&amp; m) {
+            return std::max(mainSentences[m.mainIdx].ids.size(),
+                            doc.sentences[m.docSentIdx].ids.size());
+        };
+        std::sort(pairs.begin(), pairs.end(), [&amp;](const Match&amp; p, const Match&amp; q) {
+            return moreSimilar(p, (int)pairLength(p), q, (int)pairLength(q));
+        });
+
+        const int shown = std::min((int)pairs.size(), MAX_PAIRS_SHOWN);
+        for (int t = 0; t &lt; shown; ++t) {
+            const Sentence&amp; ms = mainSentences[pairs[t].mainIdx];
+            const Sentence&amp; ds = doc.sentences[pairs[t].docSentIdx];
+            std::printf(&quot;   \&quot;%s\&quot;\n&quot;, ms.text.c_str());
+            if (pairs[t].distance == 0)
+                std::printf(&quot;   \&quot;%s\&quot;\n&quot;, ds.text.c_str());
+            else
+                std::printf(&quot;   \&quot;%s\&quot;   [edited: %s]\n&quot;, ds.text.c_str(), describeEdits(ds, ms).c_str());
+        }
+        if ((int)pairs.size() &gt; shown) std::printf(&quot;   ... and %d more pairs\n&quot;, (int)pairs.size() - shown);
+    }
+
+    // Sentences of main_doc.txt copied from at least one document.
+    int copied = 0;
+    for (int i = 0; i &lt; n; ++i) {
+        bool found = false;
+        for (int d = 0; d &lt; numDocs &amp;&amp; !found; ++d) found = table.best[d][i].docSentIdx &gt;= 0;
+        if (found) ++copied;
+    }
+    std::printf(&quot;\n%d of %d sentences of main_doc.txt (%s%%) match a sentence in at least one document.\n&quot;,
+                copied, n, percent(copied, n).c_str());
+}
+</pre>
+<div class="codefile">src/benchmark.cpp</div><pre class="code">// =====================================================================
+// benchmark.cpp
+// Empirical analysis: runs the brute-force and the efficient version on
+// the first m documents for several values of m (at least 5 sizes),
+// checks that both give identical results and prints the running times
+// in milliseconds as a table; the same numbers are written to a CSV file
+// that can be plotted for the report.
+// Only the matching work is timed (the efficient time includes building
+// the index); reading the files is the same for both and is excluded.
+// =====================================================================
+#include &quot;plagiarism.h&quot;
+
+#include &lt;algorithm&gt;
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+#include &lt;fstream&gt;
+
+namespace {
+
+double millisecondsSince(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration&lt;double, std::milli&gt;(std::chrono::steady_clock::now() - start).count();
+}
+
+// Runs `algorithm` up to `repetitions` times and returns the fastest time.
+// Very slow runs (&gt; 3 s) are not repeated.
+template &lt;typename Algorithm&gt;
+double timeIt(Algorithm algorithm, const Corpus&amp; corpus, int repetitions, MatchTable&amp; result) {
+    double best = -1;
+    for (int r = 0; r &lt; repetitions; ++r) {
+        auto start = std::chrono::steady_clock::now();
+        result = algorithm(corpus);
+        const double ms = millisecondsSince(start);
+        if (best &lt; 0 || ms &lt; best) best = ms;
+        if (ms &gt; 3000) break;
+    }
+    return best;
+}
+
+}  // namespace
+
+void runBenchmark(const Corpus&amp; corpus, int repetitions, const std::string&amp; csvPath) {
+    const int total = (int)corpus.docs.size();
+    const int points = std::min(total, 8);
+
+    std::vector&lt;int&gt; sizes;
+    for (int p = 1; p &lt;= points; ++p) {
+        const int m = (int)((long long)total * p / points);
+        if (m &gt; 0 &amp;&amp; (sizes.empty() || sizes.back() != m)) sizes.push_back(m);
+    }
+
+    std::ofstream csv(csvPath);
+    csv &lt;&lt; &quot;documents,document_sentences,main_sentences,brute_force_ms,efficient_ms,speedup,same_result\n&quot;;
+
+    std::printf(&quot;Benchmark: main_doc.txt has %d sentences, best of %d runs per size\n\n&quot;,
+                (int)corpus.main.sentences.size(), repetitions);
+    std::printf(&quot;%10s %12s %16s %14s %10s %8s\n&quot;, &quot;documents&quot;, &quot;doc sents&quot;, &quot;brute force ms&quot;, &quot;efficient ms&quot;,
+                &quot;speedup&quot;, &quot;same&quot;);
+
+    for (int m : sizes) {
+        Corpus sub;
+        sub.main = corpus.main;
+        sub.vocabularySize = corpus.vocabularySize;
+        sub.docs.assign(corpus.docs.begin(), corpus.docs.begin() + m);
+        long long docSentences = 0;
+        for (const Document&amp; d : sub.docs) docSentences += (long long)d.sentences.size();
+
+        MatchTable brute, fast;
+        const double bruteMs = timeIt(runBruteForce, sub, repetitions, brute);
+        const double fastMs = timeIt(runEfficient, sub, repetitions, fast);
+        const bool same = (brute == fast);
+        const double speedup = fastMs &gt; 0 ? bruteMs / fastMs : 0;
+
+        std::printf(&quot;%10d %12lld %16.2f %14.3f %9.1fx %8s\n&quot;, m, docSentences, bruteMs, fastMs, speedup,
+                    same ? &quot;yes&quot; : &quot;NO&quot;);
+        csv &lt;&lt; m &lt;&lt; &#x27;,&#x27; &lt;&lt; docSentences &lt;&lt; &#x27;,&#x27; &lt;&lt; sub.main.sentences.size() &lt;&lt; &#x27;,&#x27; &lt;&lt; bruteMs &lt;&lt; &#x27;,&#x27;
+            &lt;&lt; fastMs &lt;&lt; &#x27;,&#x27; &lt;&lt; speedup &lt;&lt; &#x27;,&#x27; &lt;&lt; (same ? &quot;yes&quot; : &quot;no&quot;) &lt;&lt; &#x27;\n&#x27;;
+    }
+    std::printf(&quot;\nResults written to %s\n&quot;, csvPath.c_str());
+}
+</pre>
+<div class="codefile">Makefile</div><pre class="code"># CMP3005 plagiarism detector
+#   make          builds ./plagiarism
+#   make test     builds and runs the self-test
+CXX      ?= g++
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
+
+SOURCES = src/main.cpp src/text_processing.cpp src/similarity.cpp \
+          src/brute_force.cpp src/efficient.cpp src/output.cpp src/benchmark.cpp
+LIBRARY = $(filter-out src/main.cpp,$(SOURCES))
+
+plagiarism: $(SOURCES) src/plagiarism.h
+	$(CXX) $(CXXFLAGS) -o $@ $(SOURCES)
+
+selftest: tests/selftest.cpp $(LIBRARY) src/plagiarism.h
+	$(CXX) $(CXXFLAGS) -Isrc -o $@ tests/selftest.cpp $(LIBRARY)
+
+test: selftest
+	./selftest
+
+clean:
+	rm -f plagiarism selftest
+
+.PHONY: test clean
+</pre>
+</section>
+
+<!-- ============================== PART 2 ============================== -->
+<section class="part report">
+<h1>Part 2: Report</h1>
+
+<h2>a. Problem and approach</h2>
+<p>The program gets <code>main_doc.txt</code> and a folder of documents. For every document it reports what percentage of the
+main_doc sentences were copied from it, either exactly or with small edits, and it shows the most similar sentence pairs.
+We use the definition from the assignment: similarity rate = matched sentences of main_doc / all sentences of main_doc × 100,
+printed with one decimal.</p>
+<p>Our main idea is to turn every sentence into a list of integer word ids and call two sentences a match when their word-level
+edit distance is small. The brute force computes this distance for every pair of sentences. The efficient version gives the same
+answer but computes almost no distances. It builds an index of the words in main_doc, reads each document sentence once, and uses a
+pigeonhole argument and two cheap lower bounds to throw away the pairs that cannot match. Only the few pairs that are left get a
+banded edit distance. The <code>compare</code> and <code>benchmark</code> modes run both versions on the same input and check that
+they print the same result.</p>
+<p><b>Matching rule.</b> A word is a run of letters and digits. An apostrophe or hyphen inside a word stays in it ("Majesty's",
+"well-nigh"). Case and punctuation are ignored. As the distance we use the optimal string alignment (OSA) distance on words, which is
+the smallest number of word insertions, deletions, replacements and swaps of two neighbouring words. These are the same four kinds of
+edits the task describes. Sentences <i>a</i> and <i>b</i> match if dist(<i>a</i>,<i>b</i>) ≤ ⌊0.30 · max(|a|,|b|)⌋. So a sentence
+of 1 to 3 words has to be identical, a 10-word sentence can have 3 edits and a 30-word sentence 9. We started with 25% and moved to 30%
+after testing on generated sets (section e). With 30% we found sentences that had up to 3 random edits, and we checked that no two
+different sentences in the sample documents are even within 40% of each other, so we did not get any false matches. A main sentence is
+counted once per document; if it matches several sentences there, we keep the closest one.</p>
+<p><b>Sentence splitting.</b> A sentence ends at <code>.</code>, <code>!</code> or <code>?</code> when the next thing after the
+whitespace is a capital letter, a digit, a quote or a bracket. We do not split after <i>Mr.</i>, <i>St.</i>, a few other common
+abbreviations, or a single capital letter (<i>U.S.</i>, <i>James B. Eads</i>). We also do not split when a closing quote comes right
+after the full stop (<code>do." The</code>), and an empty line always ends a sentence. We got this rule from the data. While looking
+at the sample documents we noticed that every paragraph has exactly six sentences, so the documents were clearly built from the test
+generator's own sentences. Only this rule gives six sentences in all 320 paragraphs. A simple split on every <code>". "</code> gives 7
+or 8 in eleven of them, and our first version, which also split after closing quotes, was wrong in a few paragraphs too. Getting the
+boundaries right matters because a sentence that is cut in two changes the sentence count and can hide a copied sentence.</p>
+
+<h2>b. Data structures and algorithms</h2>
+<p><b>1. Tokenizer and our own hash table (word to id).</b> One pass over the text splits it into sentences and words. We do not use
+<code>find</code>, <code>indexOf</code> or regex anywhere. Each lower-cased word gets a small integer id from a hash table we wrote
+ourselves. It uses the 64-bit FNV-1a hash and open addressing with linear probing, and the table doubles when it is half full. After
+this step a sentence is a <code>vector&lt;int&gt;</code> and comparing two words is a single integer comparison. We chose a hash table
+because a lookup is O(1) on average, while std::map or a BST needs O(log V) string comparisons. Integer ids also make all later steps
+cheaper than working with strings. In our first version we stored every word as a separate std::string, and reading 200 documents took
+about 94 ms. With the hash table and no per-word strings it went down to about 48 ms.</p>
+<pre class="pseudo">intern(word):  h ← FNV1a(lowercase(word));  p ← h mod size
+               while slot[p] not empty: if stored(slot[p]) = word: return slot[p];  p ← p+1 mod size
+               slot[p] ← new id;  if count > size/2: double size and re-insert;  return new id</pre>
+
+<p><b>2. Word-level OSA edit distance (dynamic programming).</b> We picked OSA because it counts exactly the four allowed edits.
+Plain Levenshtein counts a swap as 2 edits, and bag-of-words measures like Jaccard or cosine cannot see a swap at all. We work on words
+instead of characters, so the sequences are about 6 times shorter.</p>
+<pre class="pseudo">d[i][0] = i,  d[0][j] = j
+d[i][j] = min( d[i-1][j] + 1,  d[i][j-1] + 1,  d[i-1][j-1] + [a_i ≠ b_j],
+               d[i-2][j-2] + 1  if a_i = b_(j-1) and a_(i-1) = b_j )        # swap
+answer d[|a|][|b|]   (only 3 rows are stored)</pre>
+<p><b>3. Brute force.</b></p>
+<pre class="pseudo">for each sentence a of main_doc:  for each document D:  for each sentence b of D:
+    dist ← OSA(a, b)                                        # full table, O(|a|·|b|)
+    if dist ≤ allowed(|a|,|b|): keep (D, a, b, dist) if it is the best pair of a in D</pre>
+
+<p><b>4. Efficient version.</b> It has four parts.</p>
+<p>(i) An inverted index of main_doc: <code>postings[word]</code> is the list of main sentences that contain the word, and we also keep
+each main sentence's word ids in sorted order. Our first efficient version indexed all the documents instead. That index is much bigger
+and was slower to build, so we switched to indexing main_doc, which is the small side, and reading the documents one sentence at a time.</p>
+<p>(ii) The pigeonhole filter. Suppose <i>b</i> matches <i>a</i> with at most k edits. Each edit can remove at most one word of
+<i>b</i> from <i>a</i> (a swap removes none), so if we take any k+1 different words of <i>b</i>, at least one of them is in <i>a</i>.
+This gives us two shortcuts. If k+1 different words of <i>b</i> do not appear anywhere in main_doc, <i>b</i> cannot match anything and
+we skip it. If not, we only look at the main sentences in the posting lists of the k+1 rarest words of <i>b</i>. Because of the
+argument above we never lose a real match, so the result is the same as the brute force.</p>
+<p>(iii) Two cheap filters that never reject a real match, the cheaper one first. The length filter uses the fact that each edit changes
+the length by at most one word. The bag-of-words filter uses dist ≥ max(|a|,|b|) minus the number of common words; we count the common
+words by merging the two sorted id lists in O(w).</p>
+<p>(iv) Banded OSA. If the distance is at most k, the best alignment never leaves the band |i − j| ≤ k, so we only fill 2k+1 cells per
+row. We also stop as soon as a whole row is bigger than k.</p>
+<pre class="pseudo">build postings[word], sorted ids of every main sentence                    # once, O(n·w log w)
+for each document D, for each sentence b of D:
+    k ← largest allowed(|a|,|b|) over all |a| that pass the length filter
+    scan distinct words of b; missing ← words with empty postings;  if missing > k: next b
+    probes ← missing words + (k+1 − missing) rarest present words of b
+    for each main sentence a in postings of probes (each a once):
+        k_ab ← allowed(|a|,|b|)
+        if | |a|−|b| | > k_ab: continue                                      # length filter
+        if max(|a|,|b|) − common(sorted a, sorted b) > k_ab: continue        # bag-of-words filter
+        if bandedOSA(a, b, k_ab) ≤ k_ab: keep the pair (best per (D, a))
+(if b has ≤ k distinct words the pigeonhole rule cannot be applied: all a with ||a|−|b|| ≤ k are candidates)</pre>
+<p>We also thought about other options. Rabin-Karp or hashing whole sentences only finds exact copies. Hashing word n-grams (shingles)
+needs 3k+1 probes per sentence because one edit can break up to 3 bigrams, and common bigrams like "of the" have very long lists. With
+single words and "rarest first" we only need k+1 probes. MinHash and LSH are probabilistic, so they can miss copies. Suffix trees and
+suffix arrays find exact substrings, not edited sentences.</p>
+<p><b>5. Output.</b> A <code>MatchTable</code> (documents × main sentences) stores the best pair for each cell. We sort the documents
+by number of matched sentences and the pairs inside a document by dist/max(|a|,|b|). The best 5 pairs are printed, and for edited ones
+we get the edit list by walking back through the DP table.</p>
+
+<h2>c. Complexity analysis</h2>
+<p>We use these names: n = sentences in main_doc, m = number of documents, s = sentences per document, S = m·s = all document
+sentences, w = words per sentence (maximum), W ≈ S·w = all words in the documents, C = characters in all files, V = number of different
+words, k = allowed edits ≤ 0.3 · longer length (at most 0.43·w after the length filter), c = candidates per document sentence and
+M = matching pairs.</p>
+<table class="small">
+<tr><th>Step</th><th>Worst case</th><th>Explanation</th></tr>
+<tr><td>Read, split, tokenize, hash (both versions)</td><td>O(C) expected</td><td>one linear scan; a hash lookup costs O(word length) on average (load ≤ ½, doubling is amortized O(1)); O(V) per lookup only if every word collides</td></tr>
+<tr><td>Full OSA of one pair</td><td>O(w²)</td><td>(|a|+1)(|b|+1) cells, O(1) each</td></tr>
+<tr><td><b>Brute force</b></td><td><b>O(n·S·w²) = O(n·m·s·w²)</b></td><td>every one of the n·S pairs gets a full DP</td></tr>
+<tr><td>Build main_doc index</td><td>O(n·w log w)</td><td>n·w postings plus sorting each main sentence</td></tr>
+<tr><td>Scan + pigeonhole test of b</td><td>O(w)</td><td>stamp arrays make the distinct-word and posting checks O(1)</td></tr>
+<tr><td>Probe selection, sort b</td><td>O(w log w)</td><td>partial sort of at most w words, sort for the merge</td></tr>
+<tr><td>Candidate generation</td><td>O(k·n) = O(w·n)</td><td>k+1 posting lists, each at most n long; at most n different candidates</td></tr>
+<tr><td>Length / bag filter</td><td>O(1) / O(w)</td><td>per candidate</td></tr>
+<tr><td>Banded OSA</td><td>O(w·k) = O(w²)</td><td>only for candidates that pass both filters</td></tr>
+<tr><td>Ranking + printing</td><td>O(m·n + m log m + n log n)</td><td>count matches, sort documents, sort pairs, at most 5 edit lists of O(w²) per document</td></tr>
+<tr><td><b>Efficient, whole program</b></td><td><b>O(C + n·w log w + S·(w log w + n·w) + D·w²)</b></td><td>D = pairs that reach the DP</td></tr>
+</table>
+<p>In the worst case, every document sentence is almost the same as every main sentence. Then all pairs pass the filters (D = n·S) and
+the efficient version is also O(n·S·w²). We do not think any exact algorithm can avoid this, because in that input every pair really
+has to be reported or ruled out. Real text is very different. The brute force always does n·S full DPs of w² cells, but our version
+does O(w) work for most document sentences and O(w) per candidate, and only computes a DP for the M real matches. We counted this on
+the 200-document set with the 30-sentence main_doc. The brute force computes 600 000 full DPs. Our version skips 6 670 of the 20 000
+document sentences with the pigeonhole test alone, looks at 47 440 candidates (the length filter removes 29 580 and the bag-of-words
+filter 17 660) and computes only 200 banded DPs, which are exactly the 200 matching pairs. So in practice it costs
+O(C + S·w log w + S·c·w + M·w²) with c ≈ 2.4, much smaller than n. That is linear in the input size, while the brute force grows with
+n·S·w². Both versions use O(C + V + n·w + m·n) memory.</p>
+
+<h2>d. Empirical analysis</h2>
+<p>We ran all measurements on an Apple M2 Pro (16 GB RAM, macOS 26, Apple clang 17, <code>-O2</code>) with
+<code>plagiarism benchmark 5</code>. Each time is the best of 5 runs, except that a brute-force run longer than 3 s is not repeated.
+The times are in milliseconds and only cover the matching step. For the efficient version this includes building the index. Reading
+and preprocessing the files is the same for both versions, so we left it out; it takes about 5 to 12 ms for the sample set and about
+48 ms for 200 documents. The sample set only has 20 documents, so for 25 to 200 documents we made a 200-document set with
+<code>tools/make_test_set.py scale</code>, which repeats the sample documents with their sentences shuffled. We used it once with the
+sample main_doc (30 sentences) and once with a longer main_doc of 230 sentences, 150 of them copied. In every run both versions gave
+identical results.</p>
+<div class="benchrow">
+<div><div class="cap">Sample set, main_doc 30 sentences</div><table class="bench"><tr><th>documents</th><th>brute force (ms)</th><th>efficient (ms)</th><th>speedup</th></tr><tr><td>2</td><td>8.6</td><td>0.18</td><td>47×</td></tr><tr><td>5</td><td>19.1</td><td>0.36</td><td>53×</td></tr><tr><td>7</td><td>26.7</td><td>0.51</td><td>53×</td></tr><tr><td>10</td><td>37.1</td><td>0.72</td><td>52×</td></tr><tr><td>12</td><td>44.2</td><td>0.82</td><td>54×</td></tr><tr><td>15</td><td>54.7</td><td>1.06</td><td>52×</td></tr><tr><td>17</td><td>62.4</td><td>1.18</td><td>53×</td></tr><tr><td>20</td><td>72.5</td><td>1.35</td><td>54×</td></tr></table></div>
+<div><div class="cap">200-document set, main_doc 30 sentences</div><table class="bench"><tr><th>documents</th><th>brute force (ms)</th><th>efficient (ms)</th><th>speedup</th></tr><tr><td>25</td><td>92.4</td><td>1.70</td><td>54×</td></tr><tr><td>50</td><td>184.1</td><td>3.39</td><td>54×</td></tr><tr><td>75</td><td>275.4</td><td>5.19</td><td>53×</td></tr><tr><td>100</td><td>367.9</td><td>6.84</td><td>54×</td></tr><tr><td>125</td><td>461.8</td><td>8.61</td><td>54×</td></tr><tr><td>150</td><td>552.2</td><td>10.34</td><td>53×</td></tr><tr><td>175</td><td>645.2</td><td>12.18</td><td>53×</td></tr><tr><td>200</td><td>741.4</td><td>13.93</td><td>53×</td></tr></table></div>
+<div><div class="cap">200-document set, main_doc 230 sentences</div><table class="bench"><tr><th>documents</th><th>brute force (ms)</th><th>efficient (ms)</th><th>speedup</th></tr><tr><td>25</td><td>974.3</td><td>10.54</td><td>92×</td></tr><tr><td>50</td><td>1947.1</td><td>20.26</td><td>96×</td></tr><tr><td>75</td><td>2929.9</td><td>30.71</td><td>95×</td></tr><tr><td>100</td><td>3908.3</td><td>40.48</td><td>97×</td></tr><tr><td>125</td><td>5046.6</td><td>50.33</td><td>100×</td></tr><tr><td>150</td><td>5882.5</td><td>60.83</td><td>97×</td></tr><tr><td>175</td><td>6856.4</td><td>70.90</td><td>97×</td></tr><tr><td>200</td><td>7848.7</td><td>81.77</td><td>96×</td></tr></table></div>
+</div>
+<svg class="plot" viewBox="0 0 700 330" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial" font-size="10">
+<text x="193.5" y="12" text-anchor="middle" font-weight="bold">Brute force (dashed) and efficient (solid)</text>
+<line x1="50" x2="337" y1="232.0" y2="232.0" stroke="#e3e3e3"/>
+<text x="46" y="235.0" text-anchor="end">0</text>
+<line x1="50" x2="337" y1="179.5" y2="179.5" stroke="#e3e3e3"/>
+<text x="46" y="182.5" text-anchor="end">2000</text>
+<line x1="50" x2="337" y1="127.0" y2="127.0" stroke="#e3e3e3"/>
+<text x="46" y="130.0" text-anchor="end">4000</text>
+<line x1="50" x2="337" y1="74.5" y2="74.5" stroke="#e3e3e3"/>
+<text x="46" y="77.5" text-anchor="end">6000</text>
+<line x1="50" x2="337" y1="22.0" y2="22.0" stroke="#e3e3e3"/>
+<text x="46" y="25.0" text-anchor="end">8000</text>
+<text x="50.0" y="245" text-anchor="middle">0</text>
+<text x="85.9" y="245" text-anchor="middle">25</text>
+<text x="121.8" y="245" text-anchor="middle">50</text>
+<text x="157.6" y="245" text-anchor="middle">75</text>
+<text x="193.5" y="245" text-anchor="middle">100</text>
+<text x="229.4" y="245" text-anchor="middle">125</text>
+<text x="265.2" y="245" text-anchor="middle">150</text>
+<text x="301.1" y="245" text-anchor="middle">175</text>
+<text x="337.0" y="245" text-anchor="middle">200</text>
+<rect x="50" y="22" width="287" height="210" fill="none" stroke="#888"/>
+<text x="193.5" y="262" text-anchor="middle">number of documents</text>
+<text transform="translate(11,127.0) rotate(-90)" text-anchor="middle">time (ms)</text>
+<polyline points="52.9,231.8 57.2,231.5 60.0,231.3 64.3,231.0 67.2,230.8 71.5,230.6 74.4,230.4 78.7,230.1" fill="none" stroke="#1f77b4" stroke-width="1.8" stroke-dasharray="6,4"/>
+<circle cx="52.9" cy="231.8" r="2.3" fill="#1f77b4"/>
+<circle cx="57.2" cy="231.5" r="2.3" fill="#1f77b4"/>
+<circle cx="60.0" cy="231.3" r="2.3" fill="#1f77b4"/>
+<circle cx="64.3" cy="231.0" r="2.3" fill="#1f77b4"/>
+<circle cx="67.2" cy="230.8" r="2.3" fill="#1f77b4"/>
+<circle cx="71.5" cy="230.6" r="2.3" fill="#1f77b4"/>
+<circle cx="74.4" cy="230.4" r="2.3" fill="#1f77b4"/>
+<circle cx="78.7" cy="230.1" r="2.3" fill="#1f77b4"/>
+<polyline points="85.9,229.6 121.8,227.2 157.6,224.8 193.5,222.3 229.4,219.9 265.2,217.5 301.1,215.1 337.0,212.5" fill="none" stroke="#d62728" stroke-width="1.8" stroke-dasharray="6,4"/>
+<circle cx="85.9" cy="229.6" r="2.3" fill="#d62728"/>
+<circle cx="121.8" cy="227.2" r="2.3" fill="#d62728"/>
+<circle cx="157.6" cy="224.8" r="2.3" fill="#d62728"/>
+<circle cx="193.5" cy="222.3" r="2.3" fill="#d62728"/>
+<circle cx="229.4" cy="219.9" r="2.3" fill="#d62728"/>
+<circle cx="265.2" cy="217.5" r="2.3" fill="#d62728"/>
+<circle cx="301.1" cy="215.1" r="2.3" fill="#d62728"/>
+<circle cx="337.0" cy="212.5" r="2.3" fill="#d62728"/>
+<polyline points="85.9,206.4 121.8,180.9 157.6,155.1 193.5,129.4 229.4,99.5 265.2,77.6 301.1,52.0 337.0,26.0" fill="none" stroke="#2ca02c" stroke-width="1.8" stroke-dasharray="6,4"/>
+<circle cx="85.9" cy="206.4" r="2.3" fill="#2ca02c"/>
+<circle cx="121.8" cy="180.9" r="2.3" fill="#2ca02c"/>
+<circle cx="157.6" cy="155.1" r="2.3" fill="#2ca02c"/>
+<circle cx="193.5" cy="129.4" r="2.3" fill="#2ca02c"/>
+<circle cx="229.4" cy="99.5" r="2.3" fill="#2ca02c"/>
+<circle cx="265.2" cy="77.6" r="2.3" fill="#2ca02c"/>
+<circle cx="301.1" cy="52.0" r="2.3" fill="#2ca02c"/>
+<circle cx="337.0" cy="26.0" r="2.3" fill="#2ca02c"/>
+<polyline points="52.9,232.0 57.2,232.0 60.0,232.0 64.3,232.0 67.2,232.0 71.5,232.0 74.4,232.0 78.7,232.0" fill="none" stroke="#1f77b4" stroke-width="1.8" stroke-dasharray=""/>
+<circle cx="52.9" cy="232.0" r="2.3" fill="#1f77b4"/>
+<circle cx="57.2" cy="232.0" r="2.3" fill="#1f77b4"/>
+<circle cx="60.0" cy="232.0" r="2.3" fill="#1f77b4"/>
+<circle cx="64.3" cy="232.0" r="2.3" fill="#1f77b4"/>
+<circle cx="67.2" cy="232.0" r="2.3" fill="#1f77b4"/>
+<circle cx="71.5" cy="232.0" r="2.3" fill="#1f77b4"/>
+<circle cx="74.4" cy="232.0" r="2.3" fill="#1f77b4"/>
+<circle cx="78.7" cy="232.0" r="2.3" fill="#1f77b4"/>
+<polyline points="85.9,232.0 121.8,231.9 157.6,231.9 193.5,231.8 229.4,231.8 265.2,231.7 301.1,231.7 337.0,231.6" fill="none" stroke="#d62728" stroke-width="1.8" stroke-dasharray=""/>
+<circle cx="85.9" cy="232.0" r="2.3" fill="#d62728"/>
+<circle cx="121.8" cy="231.9" r="2.3" fill="#d62728"/>
+<circle cx="157.6" cy="231.9" r="2.3" fill="#d62728"/>
+<circle cx="193.5" cy="231.8" r="2.3" fill="#d62728"/>
+<circle cx="229.4" cy="231.8" r="2.3" fill="#d62728"/>
+<circle cx="265.2" cy="231.7" r="2.3" fill="#d62728"/>
+<circle cx="301.1" cy="231.7" r="2.3" fill="#d62728"/>
+<circle cx="337.0" cy="231.6" r="2.3" fill="#d62728"/>
+<polyline points="85.9,231.7 121.8,231.5 157.6,231.2 193.5,230.9 229.4,230.7 265.2,230.4 301.1,230.1 337.0,229.9" fill="none" stroke="#2ca02c" stroke-width="1.8" stroke-dasharray=""/>
+<circle cx="85.9" cy="231.7" r="2.3" fill="#2ca02c"/>
+<circle cx="121.8" cy="231.5" r="2.3" fill="#2ca02c"/>
+<circle cx="157.6" cy="231.2" r="2.3" fill="#2ca02c"/>
+<circle cx="193.5" cy="230.9" r="2.3" fill="#2ca02c"/>
+<circle cx="229.4" cy="230.7" r="2.3" fill="#2ca02c"/>
+<circle cx="265.2" cy="230.4" r="2.3" fill="#2ca02c"/>
+<circle cx="301.1" cy="230.1" r="2.3" fill="#2ca02c"/>
+<circle cx="337.0" cy="229.9" r="2.3" fill="#2ca02c"/>
+<text x="548.5" y="12" text-anchor="middle" font-weight="bold">Efficient version only (zoomed)</text>
+<line x1="405" x2="692" y1="232.0" y2="232.0" stroke="#e3e3e3"/>
+<text x="401" y="235.0" text-anchor="end">0</text>
+<line x1="405" x2="692" y1="190.0" y2="190.0" stroke="#e3e3e3"/>
+<text x="401" y="193.0" text-anchor="end">20</text>
+<line x1="405" x2="692" y1="148.0" y2="148.0" stroke="#e3e3e3"/>
+<text x="401" y="151.0" text-anchor="end">40</text>
+<line x1="405" x2="692" y1="106.0" y2="106.0" stroke="#e3e3e3"/>
+<text x="401" y="109.0" text-anchor="end">60</text>
+<line x1="405" x2="692" y1="64.0" y2="64.0" stroke="#e3e3e3"/>
+<text x="401" y="67.0" text-anchor="end">80</text>
+<line x1="405" x2="692" y1="22.0" y2="22.0" stroke="#e3e3e3"/>
+<text x="401" y="25.0" text-anchor="end">100</text>
+<text x="405.0" y="245" text-anchor="middle">0</text>
+<text x="440.9" y="245" text-anchor="middle">25</text>
+<text x="476.8" y="245" text-anchor="middle">50</text>
+<text x="512.6" y="245" text-anchor="middle">75</text>
+<text x="548.5" y="245" text-anchor="middle">100</text>
+<text x="584.4" y="245" text-anchor="middle">125</text>
+<text x="620.2" y="245" text-anchor="middle">150</text>
+<text x="656.1" y="245" text-anchor="middle">175</text>
+<text x="692.0" y="245" text-anchor="middle">200</text>
+<rect x="405" y="22" width="287" height="210" fill="none" stroke="#888"/>
+<text x="548.5" y="262" text-anchor="middle">number of documents</text>
+<text transform="translate(366,127.0) rotate(-90)" text-anchor="middle">time (ms)</text>
+<polyline points="407.9,231.6 412.2,231.2 415.0,230.9 419.4,230.5 422.2,230.3 426.5,229.8 429.4,229.5 433.7,229.2" fill="none" stroke="#1f77b4" stroke-width="1.8" stroke-dasharray=""/>
+<circle cx="407.9" cy="231.6" r="2.3" fill="#1f77b4"/>
+<circle cx="412.2" cy="231.2" r="2.3" fill="#1f77b4"/>
+<circle cx="415.0" cy="230.9" r="2.3" fill="#1f77b4"/>
+<circle cx="419.4" cy="230.5" r="2.3" fill="#1f77b4"/>
+<circle cx="422.2" cy="230.3" r="2.3" fill="#1f77b4"/>
+<circle cx="426.5" cy="229.8" r="2.3" fill="#1f77b4"/>
+<circle cx="429.4" cy="229.5" r="2.3" fill="#1f77b4"/>
+<circle cx="433.7" cy="229.2" r="2.3" fill="#1f77b4"/>
+<polyline points="440.9,228.4 476.8,224.9 512.6,221.1 548.5,217.6 584.4,213.9 620.2,210.3 656.1,206.4 692.0,202.8" fill="none" stroke="#d62728" stroke-width="1.8" stroke-dasharray=""/>
+<circle cx="440.9" cy="228.4" r="2.3" fill="#d62728"/>
+<circle cx="476.8" cy="224.9" r="2.3" fill="#d62728"/>
+<circle cx="512.6" cy="221.1" r="2.3" fill="#d62728"/>
+<circle cx="548.5" cy="217.6" r="2.3" fill="#d62728"/>
+<circle cx="584.4" cy="213.9" r="2.3" fill="#d62728"/>
+<circle cx="620.2" cy="210.3" r="2.3" fill="#d62728"/>
+<circle cx="656.1" cy="206.4" r="2.3" fill="#d62728"/>
+<circle cx="692.0" cy="202.8" r="2.3" fill="#d62728"/>
+<polyline points="440.9,209.9 476.8,189.5 512.6,167.5 548.5,147.0 584.4,126.3 620.2,104.3 656.1,83.1 692.0,60.3" fill="none" stroke="#2ca02c" stroke-width="1.8" stroke-dasharray=""/>
+<circle cx="440.9" cy="209.9" r="2.3" fill="#2ca02c"/>
+<circle cx="476.8" cy="189.5" r="2.3" fill="#2ca02c"/>
+<circle cx="512.6" cy="167.5" r="2.3" fill="#2ca02c"/>
+<circle cx="548.5" cy="147.0" r="2.3" fill="#2ca02c"/>
+<circle cx="584.4" cy="126.3" r="2.3" fill="#2ca02c"/>
+<circle cx="620.2" cy="104.3" r="2.3" fill="#2ca02c"/>
+<circle cx="656.1" cy="83.1" r="2.3" fill="#2ca02c"/>
+<circle cx="692.0" cy="60.3" r="2.3" fill="#2ca02c"/>
+<line x1="20" x2="44" y1="288" y2="288" stroke="#1f77b4" stroke-width="1.8" stroke-dasharray="6,4"/>
+<text x="50" y="291" font-size="9">brute force, sample set (n = 30)</text>
+<line x1="20" x2="44" y1="302" y2="302" stroke="#d62728" stroke-width="1.8" stroke-dasharray="6,4"/>
+<text x="50" y="305" font-size="9">brute force, 200 docs (n = 30)</text>
+<line x1="20" x2="44" y1="316" y2="316" stroke="#2ca02c" stroke-width="1.8" stroke-dasharray="6,4"/>
+<text x="50" y="319" font-size="9">brute force, 200 docs (n = 230)</text>
+<line x1="360" x2="384" y1="288" y2="288" stroke="#1f77b4" stroke-width="1.8" stroke-dasharray=""/>
+<text x="390" y="291" font-size="9">efficient, sample set (n = 30)</text>
+<line x1="360" x2="384" y1="302" y2="302" stroke="#d62728" stroke-width="1.8" stroke-dasharray=""/>
+<text x="390" y="305" font-size="9">efficient, 200 docs (n = 30)</text>
+<line x1="360" x2="384" y1="316" y2="316" stroke="#2ca02c" stroke-width="1.8" stroke-dasharray=""/>
+<text x="390" y="319" font-size="9">efficient, 200 docs (n = 230)</text>
+</svg>
+<p>Both versions grow linearly with the number of documents, which is what we expected: n and w stay fixed and S = m·s grows linearly.
+The efficient version is 47 to 54 times faster with the sample-sized main_doc and 92 to 100 times faster with the 230-sentence one. The
+brute force does n·S full DPs, while in our version only the number of candidates depends on n, and each candidate costs an O(w) merge
+instead of an O(w²) table. When we timed the whole program, including reading the files, on 200 documents with the 230-sentence
+main_doc, it took 0.14 s for the efficient version and 7.96 s for the brute force.</p>
+
+<h2>e. Results</h2>
+<p>On the sample set we find all 20 copied sentences (13 exact and 7 edited) and no false matches. The ranking and the rates are the
+same as in <code>expected_output.txt</code>: document18 26.7% (8/30), document14 16.7% (5/30), document20 13.3% (4/30), document3 6.7%
+(2/30), document4 3.3% (1/30), and 0.0% for all other documents. For all 7 edited sentences our edit lists contain the same edits as the
+expected output; we just list them in the order they appear in the sentence.</p>
+<p>Some correct matches:</p>
+<ul class="ex">
+<li>Exact copy from document18: "This fault should not be committed in dealing with a subject that will before many years affect so vitally thousands of our people." The distance is 0.</li>
+<li>A replacement and a swap (2 edits in 23 words, 6 allowed). main_doc has "The report of the Civil Service Commission <u>must</u> receive the <u>attention careful</u> ..." and document18 has "... <u>should</u> receive the <u>careful attention</u> ...". We print <i>replaced "should" with "must"; swapped "careful" and "attention"</i>. In OSA the swap costs 1 edit; Levenshtein would count it as 2.</li>
+<li>A deletion (1 edit): "With the possession of such a station <u>the</u> United States, ..." against document14's "... a station <u>by</u> the United States, ...". We print <i>deleted "by"</i>.</li>
+</ul>
+<p>To test harder cases we used <code>make_test_set.py accuracy</code>. It copies 40 sentences into a new main_doc and gives each one
+0 to 3 random insertions, deletions, replacements or swaps. It also adds 20 sentences from documents that are left out, so they appear
+nowhere. We ran 10 seeds per setting. With copied sentences of at least 10 words we found 800 out of 800. With sentences of at least
+6 words we found 798 out of 800. None of the runs had a false match. We also tried a 230-sentence main_doc with 150 copied sentences,
+and the program found all 150 and ranked the documents correctly.</p>
+<p>The two sentences we missed were these:</p>
+<ul class="ex">
+<li>"In <u>invaded canals</u> solicitude intense pervaded the nation." against the original "In <u>that crisis</u> intense solicitude pervaded the nation." That is 3 edits (2 replacements and 1 swap) in an 8-word sentence, so 37.5%, and our rule allows 30%.</li>
+<li>"It <u>term frequented</u> transmitted to Congress." against "It is herewith transmitted to Congress." That is 2 edits in 6 words, and only 1 is allowed.</li>
+</ul>
+<p>Both are short sentences where almost half of the words changed, which we would not call a small edit any more. If we allowed more
+edits we would find them, but we would also start accepting unrelated short sentences. The rule also handles similar State of the Union
+phrases well. For example, "These treaties and conventions will be laid before the Senate for ratification." and a document's "The
+articles agreed upon will immediately be laid before the Senate for their consideration." have distance 7 (4 allowed), so we do not
+report them, and that is right because one is not a copy of the other. Another way to miss a sentence would be splitting sentences
+differently from the test generator, for example at an unusual abbreviation, because then the sentence is cut in two. This is why we
+spent time matching the generator's splitting rule (section a).</p>
+
+<h2>f. Team contributions</h2>
+<table class="small">
+<tr><th>Member</th><th>Contribution</th></tr>
+<tr><td>Nikan Esmaeil Tehrani (2477758)</td><td>efficient version (main_doc index, pigeonhole filter, length and bag-of-words filters, banded edit distance), complexity analysis, putting the modules together</td></tr>
+<tr><td>Pouya Shaterzadeh (2361056)</td><td>reading the input, sentence splitter and finding the generator's splitting rule, word tokenizer, FNV-1a hash table, speeding up the preprocessing</td></tr>
+<tr><td>Kian Samieenasab (2475798)</td><td>matching rule and choosing the 30% threshold, OSA edit distance, brute-force version, edit descriptions, accuracy tests with the test-set generator</td></tr>
+<tr><td>Mustafa Faisal Izhar (2360187)</td><td>output and ranking, benchmark mode, empirical analysis (tables and plot), self-test, putting the report together</td></tr>
+</table>
+
+<h2>g. AI Use Declaration</h2>
+<p>We used an AI assistant, Claude (Anthropic), in this project. It helped us write and debug parts of the C++ code, the test-set
+generator and the report text, and it helped us check our complexity analysis. We ran every version of the program ourselves on the
+sample set and on our generated test sets, compared the output with <code>expected_output.txt</code>, and made sure the brute-force and
+efficient versions always give the same result. Every member has gone through the whole code and can explain it.
+[Attach the signed AI Use Declaration Form from the syllabus here.]</p>
+</section>
+</body></html>
